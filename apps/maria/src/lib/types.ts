@@ -71,6 +71,7 @@ export interface StreamEvent {
   parent_tool_use_id?: string | null;
   model?: string;
   tools?: string[];
+  mcp_servers?: Array<{ name: string; status: string }>;
   message?: { content?: ContentBlock[] | string };
   // Événement 'result'
   is_error?: boolean;

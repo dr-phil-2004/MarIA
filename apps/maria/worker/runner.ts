@@ -139,6 +139,15 @@ export async function runMission(
       sink.info(line, 'warn');
       return;
     }
+    if (event.type === 'system' && event.subtype === 'init' && cfg.interactivePermissions) {
+      const server = event.mcp_servers?.find((s) => s.name === SERVER_NAME);
+      if (server?.status !== 'connected') {
+        sink.info(
+          `Le serveur d’autorisations MarIA n’a pas démarré (statut : ${server?.status ?? 'absent'}) : les actions non pré-autorisées seront refusées sans fenêtre. Vérifie le terminal du worker.`,
+          'error',
+        );
+      }
+    }
     if (event.type === 'system' && event.subtype === 'init' && event.session_id && !sessionId) {
       sessionId = event.session_id;
       void store.update(mission.id, { session_id: sessionId }).catch((err: Error) => console.error(`[maria] ${err.message}`));

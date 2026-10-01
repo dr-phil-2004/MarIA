@@ -1,7 +1,8 @@
 // Serveur MCP (stdio) lancé par Claude Code via --permission-prompt-tool.
 // Chaque demande d'autorisation devient une ligne maria.permission_requests ; on attend que
 // l'utilisateur clique « Autoriser » ou « Refuser » dans MarIA, puis on répond à Claude Code.
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { createClient } from '@supabase/supabase-js';
@@ -12,6 +13,17 @@ export const TOOL_NAME = 'approve';
 export const PERMISSION_TOOL = `mcp__${SERVER_NAME}__${TOOL_NAME}`;
 
 const POLL_MS = 1000;
+/** Claude Code masque la sortie d'erreur des serveurs MCP : on journalise aussi dans un fichier. */
+export const LOG_FILE = path.join(os.tmpdir(), 'maria-permissions.log');
+
+function logError(message: string): void {
+  console.error(`[maria-permissions] ${message}`);
+  try {
+    appendFileSync(LOG_FILE, `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    /* journalisation au mieux */
+  }
+}
 
 export type Decision = 'allowed' | 'denied' | 'expired';
 
@@ -67,7 +79,7 @@ export function createHandler(backend: PermissionBackend) {
         } catch (err) {
           // En cas de panne on refuse : jamais d'autorisation sans décision explicite.
           decision = 'error';
-          console.error(`[maria-permissions] ${(err as Error).message}`);
+          logError((err as Error).message);
         }
         const denyMessages = {
           denied: 'Action refusée par l’utilisateur dans MarIA.',
@@ -124,7 +136,14 @@ function supabaseBackend(): PermissionBackend {
 }
 
 function main(): void {
-  const handle = createHandler(supabaseBackend());
+  let backend: PermissionBackend;
+  try {
+    backend = supabaseBackend();
+  } catch (err) {
+    logError(`démarrage impossible : ${(err as Error).message}`);
+    process.exit(1);
+  }
+  const handle = createHandler(backend);
   const lines = readline.createInterface({ input: process.stdin });
   lines.on('line', (line) => {
     if (!line.trim()) return;
