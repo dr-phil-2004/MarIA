@@ -151,7 +151,7 @@ const [,, command, ...args] = process.argv;
 if (command && commands[command]) {
   commands[command](...args);
 } else {
-  console.log('Usage: session.js <start|restore|end|status|update|metric> [args]');
+  console.log('Usage: session.cjs <start|restore|end|status|update|metric> [args]');
 }
 
 module.exports = commands;

@@ -247,7 +247,7 @@ const [,, command, ...args] = process.argv;
 if (command && commands[command]) {
   commands[command](...args);
 } else {
-  console.log('Usage: session.js <start|restore|end|status|update|metric> [args]');
+  console.log('Usage: session.cjs <start|restore|end|status|update|metric> [args]');
 }
 
 module.exports = commands;
@@ -342,7 +342,7 @@ if (require.main === module) {
     const result = routeTask(task);
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log('Usage: router.js <task description>');
+    console.log('Usage: router.cjs <task description>');
     console.log('\\nAvailable agents:', Object.keys(AGENT_CAPABILITIES).join(', '));
   }
 }
@@ -434,7 +434,7 @@ const value = valueParts.join(' ');
 if (command && commands[command]) {
   commands[command](key, value);
 } else {
-  console.log('Usage: memory.js <get|set|delete|clear|keys> [key] [value]');
+  console.log('Usage: memory.cjs <get|set|delete|clear|keys> [key] [value]');
 }
 
 module.exports = commands;
@@ -512,9 +512,9 @@ export function generateHookHandler(): string {
     '  return null;',
     '}',
     '',
-    "const router = safeRequire(path.join(helpersDir, 'router.js'));",
-    "const session = safeRequire(path.join(helpersDir, 'session.js'));",
-    "const memory = safeRequire(path.join(helpersDir, 'memory.js'));",
+    "const router = safeRequire(path.join(helpersDir, 'router.cjs'));",
+    "const session = safeRequire(path.join(helpersDir, 'session.cjs'));",
+    "const memory = safeRequire(path.join(helpersDir, 'memory.cjs'));",
     "const intelligence = safeRequire(path.join(helpersDir, 'intelligence.cjs'));",
     '',
     'const [,, command, ...args] = process.argv;',
@@ -1371,7 +1371,7 @@ const [,, command, ...args] = process.argv;
 if (command && commands[command]) {
   commands[command](...args);
 } else {
-  console.log('Usage: session.js <start|restore|end|status>');
+  console.log('Usage: session.cjs <start|restore|end|status>');
   console.log(\`Platform: \${platform}\`);
   console.log(\`Data dir: \${SESSION_DIR}\`);
 }
@@ -1392,9 +1392,9 @@ export function generateHelpers(options: InitOptions): Record<string, string> {
     helpers['post-commit'] = generatePostCommitHook();
 
     // Cross-platform Node.js scripts
-    helpers['session.js'] = generateCrossPlatformSessionManager();
-    helpers['router.js'] = generateAgentRouter();
-    helpers['memory.js'] = generateMemoryHelper();
+    helpers['session.cjs'] = generateCrossPlatformSessionManager();
+    helpers['router.cjs'] = generateAgentRouter();
+    helpers['memory.cjs'] = generateMemoryHelper();
 
     // Windows-specific scripts
     helpers['daemon-manager.ps1'] = generateWindowsDaemonManager();
