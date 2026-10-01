@@ -7,6 +7,10 @@ import { Store } from './store';
 const HEARTBEAT_MS = 30_000;
 
 async function main(): Promise<void> {
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major < 22) {
+    throw new Error(`Node.js ${process.versions.node} détecté : MarIA nécessite Node.js 22 ou plus (nvm install 22 && nvm use 22).`);
+  }
   const cfg = loadConfig();
   const store = new Store(cfg.supabaseUrl, cfg.serviceRoleKey);
   const names = Object.keys(cfg.workspaces);
