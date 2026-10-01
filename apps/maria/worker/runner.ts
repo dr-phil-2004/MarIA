@@ -5,6 +5,7 @@ import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/l
 import type { WorkerConfig } from './config';
 import { diffSnapshots, fileFromToolUse, snapshotDirty } from './files';
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
+import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
 
 const STATUS_POLL_MS = 2000;
@@ -85,6 +86,7 @@ export async function runMission(
   let resultEvent: StreamEvent | null = null;
   let stderrTail = '';
   let cancelled = false;
+  let usedRuflo = false;
 
   const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId), {
     cwd,
@@ -158,6 +160,7 @@ export async function runMission(
         const { name, input } = block as ToolUseBlock;
         const file = fileFromToolUse(cwd, name, input ?? {});
         if (file) toolFiles.add(file);
+        if (touchesRuflo(name, input ?? {})) usedRuflo = true;
       }
     }
     if (event.type === 'result') resultEvent = event;
@@ -206,4 +209,14 @@ export async function runMission(
     files_changed: files,
     finished_at: new Date().toISOString(),
   });
+
+  // Instantané du registre Ruflo, après coup pour ne pas retarder la fin de mission.
+  if (usedRuflo && cfg.rufloCmd) {
+    try {
+      const agents = await readRufloAgents(cfg.rufloCmd, cwd);
+      await store.update(mission.id, { ruflo_agents: agents });
+    } catch (err) {
+      console.error(`[maria] registre Ruflo illisible pour ${mission.id} : ${(err as Error).message}`);
+    }
+  }
 }

@@ -19,10 +19,20 @@ export interface Mission {
   error: string | null;
   files_changed: string[];
   cost_usd: number | null;
+  ruflo_agents: RufloAgent[] | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+/** Agent du registre Ruflo, tel que renvoyé par `ruflo agent list --format json`. */
+export interface RufloAgent {
+  agentId: string;
+  agentType: string;
+  status: string;
+  createdAt?: string;
+  lastActivityAt?: string;
 }
 
 export interface MissionEvent {

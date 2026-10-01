@@ -18,6 +18,8 @@ export interface WorkerConfig {
   /** Demandes d'autorisation affichées dans MarIA (sinon : refus automatique). */
   interactivePermissions: boolean;
   permissionTimeoutMs: number;
+  /** Commande Ruflo (ex. `npx -y ruflo@latest`) pour lire le registre d'agents ; null = désactivé. */
+  rufloCmd: string[] | null;
 }
 
 function required(name: string): string {
@@ -58,6 +60,11 @@ function parseWorkspaces(raw: string): Record<string, string> {
   return result;
 }
 
+function parseCommand(value: string): string[] | null {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return parts.length > 0 ? parts : null;
+}
+
 export function loadConfig(): WorkerConfig {
   for (const file of ['.env.local', '.env']) {
     if (existsSync(file)) process.loadEnvFile(file);
@@ -88,5 +95,6 @@ export function loadConfig(): WorkerConfig {
     pollMs,
     interactivePermissions: process.env.MARIA_INTERACTIVE_PERMISSIONS?.trim() !== '0',
     permissionTimeoutMs,
+    rufloCmd: parseCommand(process.env.MARIA_RUFLO_CMD ?? 'npx -y ruflo@latest'),
   };
 }

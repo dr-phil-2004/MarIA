@@ -105,7 +105,7 @@ button.danger { background: var(--err); }
 .mission-view { display: grid; gap: 12px; max-width: 1200px; }
 .mission-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .prompt { margin: 0; white-space: pre-wrap; font-size: 15px; }
-.columns { display: grid; grid-template-columns: 1fr 280px; gap: 12px; align-items: start; }
+.columns { display: grid; grid-template-columns: 1fr 300px; gap: 12px; align-items: start; }
 
 .feed ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .feed li { padding: 4px 0; border-bottom: 1px dashed var(--border); }
@@ -154,3 +154,13 @@ button.danger { background: var(--err); }
 }
 .modal-actions { justify-content: flex-end; align-items: center; }
 .modal-actions .muted { margin-right: auto; }
+
+.side-col { display: grid; gap: 12px; align-content: start; }
+.agent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.agent-item { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
+.agent-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.agent-item.nested { padding-left: 12px; border-left: 2px solid var(--border); }
+.agent-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ruflo { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.ruflo h3 { margin: 0; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
