@@ -77,7 +77,7 @@ const value = valueParts.join(' ');
 if (command && commands[command]) {
   commands[command](key, value);
 } else {
-  console.log('Usage: memory.js <get|set|delete|clear|keys> [key] [value]');
+  console.log('Usage: memory.cjs <get|set|delete|clear|keys> [key] [value]');
 }
 
 module.exports = commands;

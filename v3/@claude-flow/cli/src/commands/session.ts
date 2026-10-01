@@ -33,6 +33,35 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
+/**
+ * #3575: the session MCP tools report failure as `{ error }` (or
+ * `success: false`) rather than throwing, so every call site must check before
+ * printing a success line or reading result fields.
+ */
+function toolError(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return 'the tool returned no result';
+  const r = result as { error?: unknown; success?: unknown };
+  if (typeof r.error === 'string' && r.error.length > 0) return r.error;
+  if (r.success === false) return 'the operation failed';
+  return null;
+}
+
+interface MemoryCaptureSummary {
+  requested: boolean;
+  status: 'not-requested' | 'captured' | 'no-store' | 'error';
+  entries: number;
+  error?: string;
+}
+
+/** #3573: say what happened to memory instead of printing an invented 0. */
+function memoryCaptureLabel(capture: MemoryCaptureSummary | undefined, fallback: number | undefined): string | number {
+  if (!capture) return fallback ?? 'unknown';
+  if (!capture.requested) return 'not included';
+  if (capture.status === 'error') return `not captured (${capture.error || 'error'})`;
+  if (capture.status === 'no-store') return '0 (no memory store found)';
+  return capture.entries;
+}
+
 // Format session status
 function formatStatus(status: string): string {
   switch (status) {
@@ -229,6 +258,7 @@ const saveCommand: Command = {
           memoryEntries?: number;
           totalSize?: number;
         };
+        memoryCapture?: MemoryCaptureSummary;
       }>('session_save', {
         name: sessionName,
         description,
@@ -236,6 +266,13 @@ const saveCommand: Command = {
         includeAgents: ctx.flags['include-agents'] !== false,
         includeTasks: ctx.flags['include-tasks'] !== false
       });
+
+      const failure = toolError(result);
+      if (failure) {
+        spinner.fail('Failed to save session');
+        output.printError(failure);
+        return { success: false, exitCode: 1 };
+      }
 
       spinner.succeed('Session saved');
       output.writeln();
@@ -253,10 +290,14 @@ const saveCommand: Command = {
           { property: 'Saved At', value: new Date(result.savedAt).toLocaleString() },
           { property: 'Agents', value: stats.agentCount ?? stats.agents ?? 0 },
           { property: 'Tasks', value: stats.taskCount ?? stats.tasks ?? 0 },
-          { property: 'Memory Entries', value: stats.memoryEntries ?? 0 },
+          { property: 'Memory Entries', value: memoryCaptureLabel(result.memoryCapture, stats.memoryEntries) },
           { property: 'Total Size', value: formatSize(stats.totalSize ?? 0) }
         ]
       });
+
+      if (result.memoryCapture?.status === 'error') {
+        output.printWarning(`Memory was requested but could not be captured: ${result.memoryCapture.error}`);
+      }
 
       output.writeln();
       output.printSuccess(`Session saved: ${result.sessionId}`);
@@ -384,7 +425,9 @@ const restoreCommand: Command = {
           agents: number;
           tasks: number;
           memoryEntries: number;
+          memoryEntriesRestored?: number;
         };
+        memoryRestore?: { restored: number; failed: number; errors: string[] };
       }>('session_restore', {
         sessionId,
         restoreMemory,
@@ -392,8 +435,26 @@ const restoreCommand: Command = {
         restoreTasks
       });
 
-      spinner.succeed('Session restored');
+      const failure = toolError(result) ?? (result.restored === false ? 'Session not found' : null);
+      if (failure) {
+        spinner.fail('Failed to restore session');
+        output.printError(failure);
+        return { success: false, exitCode: 1 };
+      }
+
+      const memoryRestore = result.memoryRestore;
+      const memoryPartial = !!memoryRestore && memoryRestore.failed > 0;
+      if (memoryPartial) {
+        spinner.fail('Session restored with memory errors');
+      } else {
+        spinner.succeed('Session restored');
+      }
       output.writeln();
+
+      // #3573: distinguish "not requested" from "the session holds no memory".
+      const memoryStatus = result.restoredComponents.memory
+        ? (memoryPartial ? output.error('Partial') : output.success('Restored'))
+        : restoreMemory ? output.dim('Not in session') : output.dim('Skipped');
 
       output.printTable({
         columns: [
@@ -404,8 +465,10 @@ const restoreCommand: Command = {
         data: [
           {
             component: 'Memory',
-            status: result.restoredComponents.memory ? output.success('Restored') : output.dim('Skipped'),
-            count: result.restoredComponents.memory ? result.stats.memoryEntries : 0
+            status: memoryStatus,
+            count: result.restoredComponents.memory
+              ? (result.stats.memoryEntriesRestored ?? result.stats.memoryEntries)
+              : 0
           },
           {
             component: 'Agents',
@@ -421,13 +484,22 @@ const restoreCommand: Command = {
       });
 
       output.writeln();
-      output.printSuccess(`Session ${sessionId} restored successfully`);
+      if (memoryPartial) {
+        output.printWarning(
+          `${memoryRestore!.failed} memory entries could not be restored` +
+          (memoryRestore!.errors.length ? `: ${memoryRestore!.errors.join('; ')}` : ''),
+        );
+      } else {
+        output.printSuccess(`Session ${sessionId} restored successfully`);
+      }
 
       if (ctx.flags.format === 'json') {
         output.printJson(result);
       }
 
-      return { success: true, data: result };
+      return memoryPartial
+        ? { success: false, exitCode: 1, data: result }
+        : { success: true, data: result };
     } catch (error) {
       spinner.fail('Failed to restore session');
       if (error instanceof MCPClientError) {
@@ -482,6 +554,12 @@ const deleteCommand: Command = {
         deletedAt: string;
       }>('session_delete', { sessionId });
 
+      const failure = toolError(result) ?? (result.deleted === false ? 'Session not found' : null);
+      if (failure) {
+        output.printError(`Failed to delete session: ${failure}`);
+        return { success: false, exitCode: 1 };
+      }
+
       output.writeln();
       output.printSuccess(`Session ${sessionId} deleted`);
 
@@ -504,13 +582,19 @@ const deleteCommand: Command = {
 // Export subcommand
 const exportCommand: Command = {
   name: 'export',
-  description: 'Export session to file',
+  description: 'Export a saved session to a file. Usage: session export <session-id> [-o file] (or --latest)',
   options: [
     {
       name: 'output',
       short: 'o',
       description: 'Output file path',
       type: 'string'
+    },
+    {
+      name: 'latest',
+      description: 'Export the most recently saved session when no session id is given',
+      type: 'boolean',
+      default: false
     },
     {
       name: 'format',
@@ -539,13 +623,22 @@ const exportCommand: Command = {
     const exportFormat = ctx.flags.format as string;
     const compress = ctx.flags.compress as boolean;
 
-    // Get current session if no ID provided
+    // #3575: like `session delete`, refuse to guess which session to act on.
+    // Exporting the most recent one is available, but only when asked for.
     if (!sessionId) {
+      if (!ctx.flags.latest) {
+        output.printError('Session ID is required. Pass a session id, or --latest to export the most recently saved session.');
+        return { success: false, exitCode: 1 };
+      }
       try {
-        const current = await callMCPTool<{ sessionId: string }>('session_current', {});
+        const current = await callMCPTool<{ sessionId: string; error?: string }>('session_current', {});
+        if (toolError(current) || !current.sessionId) {
+          output.printError('No saved sessions to export.');
+          return { success: false, exitCode: 1 };
+        }
         sessionId = current.sessionId;
       } catch {
-        output.printError('No active session. Provide a session ID to export.');
+        output.printError('No saved sessions to export.');
         return { success: false, exitCode: 1 };
       }
     }
@@ -575,6 +668,13 @@ const exportCommand: Command = {
         includeMemory: ctx.flags['include-memory'] !== false
       });
 
+      const failure = toolError(result);
+      if (failure || result.data === undefined) {
+        spinner.fail('Failed to export session');
+        output.printError(failure || 'The export returned no session data');
+        return { success: false, exitCode: 1 };
+      }
+
       // Format output
       let content: string;
       if (exportFormat === 'yaml') {
@@ -593,7 +693,8 @@ const exportCommand: Command = {
       spinner.succeed('Session exported');
       output.writeln();
 
-      const exportStats = result.stats || {};
+      // session_export returns the whole record under `data`; its stats live there.
+      const exportStats = result.stats || (result.data as { stats?: typeof result.stats })?.stats || {};
       output.printTable({
         columns: [
           { key: 'property', header: 'Property', width: 18 },
@@ -632,7 +733,7 @@ const exportCommand: Command = {
 // Import subcommand
 const importCommand: Command = {
   name: 'import',
-  description: 'Import session from file',
+  description: 'Import a session from a file written by session export. Usage: session import <file> [--name n] [--activate]',
   options: [
     {
       name: 'name',
@@ -670,17 +771,21 @@ const importCommand: Command = {
     spinner.start();
 
     try {
-      const content = fs.readFileSync(absolutePath, 'utf-8');
-      let data: unknown;
-
-      // Parse based on extension
+      // The YAML written by `session export --format yaml` is display-only;
+      // there is no YAML parser here, so say so instead of failing obscurely.
       if (absolutePath.endsWith('.yaml') || absolutePath.endsWith('.yml')) {
-        // Simple YAML parsing (basic implementation)
-        data = JSON.parse(content); // Would need proper YAML parser
-      } else {
-        data = JSON.parse(content);
+        try {
+          JSON.parse(fs.readFileSync(absolutePath, 'utf-8'));
+        } catch {
+          spinner.fail('Failed to import session');
+          output.printError('YAML session import is not supported. Export with --format json and import that file.');
+          return { success: false, exitCode: 1 };
+        }
       }
 
+      // #3575: session_import reads the file itself from `inputPath`. Passing a
+      // parsed `data` object used to hit its required-argument check, and the
+      // CLI then printed "Session imported" before crashing on the error result.
       const result = await callMCPTool<{
         sessionId: string;
         name: string;
@@ -691,11 +796,19 @@ const importCommand: Command = {
           memoryEntriesImported: number;
         };
         activated: boolean;
+        error?: string;
       }>('session_import', {
-        data,
+        inputPath: absolutePath,
         name: sessionName,
         activate
       });
+
+      const failure = toolError(result);
+      if (failure) {
+        spinner.fail('Failed to import session');
+        output.printError(failure);
+        return { success: false, exitCode: 1 };
+      }
 
       spinner.succeed('Session imported');
       output.writeln();
@@ -762,6 +875,12 @@ const currentCommand: Command = {
           duration?: number;
         };
       }>('session_current', { includeStats: true });
+
+      if (toolError(result)) {
+        output.printWarning('No active session');
+        output.printInfo('Save one with "claude-flow session save"');
+        return { success: true, data: { active: false } };
+      }
 
       if (ctx.flags.format === 'json') {
         output.printJson(result);
@@ -875,7 +994,8 @@ export const sessionCommand: Command = {
     { command: 'claude-flow session save -n "checkpoint-1"', description: 'Save current session' },
     { command: 'claude-flow session restore session-123', description: 'Restore a session' },
     { command: 'claude-flow session delete session-123', description: 'Delete a session' },
-    { command: 'claude-flow session export -o backup.json', description: 'Export session to file' },
+    { command: 'claude-flow session export session-123 -o backup.json', description: 'Export a session to file' },
+    { command: 'claude-flow session export --latest -o backup.json', description: 'Export the most recently saved session' },
     { command: 'claude-flow session import backup.json', description: 'Import session from file' },
     { command: 'claude-flow session current', description: 'Show current session' }
   ],

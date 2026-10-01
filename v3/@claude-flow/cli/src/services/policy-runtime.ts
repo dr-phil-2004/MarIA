@@ -362,8 +362,11 @@ export async function withPolicyTransaction<T>(
       approvalIssuerVerifier: options.approvalIssuerVerifier,
     });
     const result = await operation(engine);
-    const nextState = engine.exportState();
+    // Verify before exporting: verification establishes the ledger anchor
+    // (#3568) on state written before the anchor existed, and that anchor
+    // must be part of what is persisted.
     if (!engine.verifyLedger().valid) throw new Error('policy-ledger-verification-failed');
+    const nextState = engine.exportState();
     await writePolicyState(projectRoot, target.state, nextState);
     return result;
   } finally {
@@ -430,8 +433,29 @@ export async function revokePolicyApproval(id: string, projectRoot = process.cwd
   return withPolicyTransaction(projectRoot, (engine) => engine.revokeApproval(id));
 }
 
+/**
+ * Read-only verification (#3568). It must not run inside
+ * `withPolicyTransaction`, whose own post-operation check throws a generic
+ * `policy-ledger-verification-failed` and hides which check failed. The only
+ * write is persisting an anchor established for a pre-anchor ledger.
+ */
 export async function verifyPolicyLedger(projectRoot = process.cwd()): Promise<ReturnType<AgenticPolicyEngine['verifyLedger']>> {
-  return withPolicyTransaction(projectRoot, (engine) => engine.verifyLedger());
+  const target = paths(projectRoot);
+  mkdirSync(target.dir, { recursive: true, mode: 0o700 });
+  const release = await acquireLock(target.lock);
+  try {
+    const engine = AgenticPolicyEngine.fromState(loadPolicyState(projectRoot), {
+      signingKey: process.env.CLAUDE_FLOW_POLICY_SIGNING_KEY,
+      keyId: process.env.CLAUDE_FLOW_POLICY_KEY_ID,
+    });
+    const result = engine.verifyLedger();
+    if (result.anchor === 'established-now') {
+      await writePolicyState(projectRoot, target.state, engine.exportState());
+    }
+    return result;
+  } finally {
+    release();
+  }
 }
 
 /**

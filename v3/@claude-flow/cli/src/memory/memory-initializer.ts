@@ -16,6 +16,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
 import { readFileMaybeEncrypted, writeFileAtomic, writeFileRestricted } from '../fs-secure.js';
 import { restoreMemoryDbFromBackup } from '../services/memory-backup.js';
+import { validateIdentifier } from '../mcp-tools/validate-input.js';
 
 /**
  * ADR-323 — typed memory provenance. Distinguishes WHO/WHAT wrote a memory
@@ -3992,8 +3993,6 @@ export async function withMemoryDbLock<T>(dbPath: string, fn: () => Promise<T> |
   }
 }
 
-const NAMESPACE_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
-
 export async function purgeNamespace(options: {
   namespace: string;
   dbPath?: string;
@@ -4007,8 +4006,11 @@ export async function purgeNamespace(options: {
 }> {
   const { namespace, dbPath: customPath } = options;
 
-  if (!NAMESPACE_PATTERN.test(namespace)) {
-    return { success: false, deletedCount: 0, remainingEntries: 0, error: `Invalid namespace: ${namespace}` };
+  // #3570: the same validator store, import and export use, so any namespace
+  // that can be written can also be purged (`team:alice` included).
+  const vNs = validateIdentifier(namespace, 'namespace');
+  if (!vNs.valid) {
+    return { success: false, deletedCount: 0, remainingEntries: 0, error: `Invalid namespace: ${vNs.error}` };
   }
 
   const swarmDir = getMemoryRoot();
