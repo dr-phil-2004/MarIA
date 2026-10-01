@@ -30,6 +30,17 @@ export class Store {
     if (error) throw new Error(`registerWorkspaces: ${error.message}`);
   }
 
+  /** Clôt les demandes d'autorisation restées sans réponse (mission terminée ou worker redémarré). */
+  async expirePermissions(missionIds: string[]): Promise<void> {
+    if (missionIds.length === 0) return;
+    const { error } = await this.db
+      .from('permission_requests')
+      .update({ status: 'expired' })
+      .in('mission_id', missionIds)
+      .eq('status', 'pending');
+    if (error) throw new Error(`expirePermissions: ${error.message}`);
+  }
+
   /** Missions restées "running" après un arrêt brutal du worker. */
   async failOrphans(names: string[]): Promise<number> {
     const { data, error } = await this.db
@@ -39,6 +50,7 @@ export class Store {
       .in('status', ['running', 'cancel_requested'])
       .select('id');
     if (error) throw new Error(`failOrphans: ${error.message}`);
+    await this.expirePermissions(data.map((m) => m.id));
     return data.length;
   }
 

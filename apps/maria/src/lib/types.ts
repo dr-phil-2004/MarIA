@@ -83,3 +83,12 @@ export interface StreamEvent {
   level?: 'info' | 'warn' | 'error';
   text?: string;
 }
+
+export interface PermissionRequest {
+  id: string;
+  mission_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  status: 'pending' | 'allowed' | 'denied' | 'expired';
+  created_at: string;
+}

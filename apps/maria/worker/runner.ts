@@ -1,18 +1,22 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import readline from 'node:readline';
 import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
 import type { WorkerConfig } from './config';
 import { diffSnapshots, fileFromToolUse, snapshotDirty } from './files';
+import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { EventSink, type Store } from './store';
 
 const STATUS_POLL_MS = 2000;
 const KILL_GRACE_MS = 5000;
 const STDERR_TAIL = 4000;
 
-/** Contexte ajouté au prompt système : l'agent tourne sans humain pour approuver quoi que ce soit. */
-function headlessNote(cwd: string): string {
+/** Contexte ajouté au prompt système : l'agent tourne sans terminal, piloté depuis MarIA. */
+function headlessNote(cwd: string, interactive: boolean): string {
   return [
-    'Tu es exécuté en mode headless par MarIA : aucun humain ne peut approuver une permission pendant la mission.',
+    interactive
+      ? 'Tu es exécuté par MarIA sans terminal : toute action non pré-autorisée est soumise à l’utilisateur dans l’interface, qui peut l’autoriser ou la refuser.'
+      : 'Tu es exécuté en mode headless par MarIA : aucun humain ne peut approuver une permission pendant la mission.',
     `Ton dossier de travail est ${cwd} ; lance les commandes directement depuis ce dossier, sans \`cd\`, et une commande à la fois (pas de && ni de |) pour qu'elles correspondent aux outils pré-autorisés.`,
     'Écris les commandes sous leur forme la plus simple, sans option de changement de dossier (pas de `git -C`, `npm --prefix`, chemins absolus vers le dossier de travail) : par exemple `git status`, `npm test`.',
     "Si une commande est refusée, ne réessaie pas de variantes : continue avec ce que tu peux faire et liste en fin de réponse les commandes à autoriser.",
@@ -20,10 +24,26 @@ function headlessNote(cwd: string): string {
   ].join('\n');
 }
 
-function buildArgs(cfg: WorkerConfig, cwd: string, resumeSessionId: string | null): string[] {
+/** Déclare le serveur MCP de permissions (worker/permission-mcp.ts), lancé par Claude Code. */
+function permissionMcpConfig(cfg: WorkerConfig, missionId: string): string {
+  return JSON.stringify({
+    mcpServers: {
+      [SERVER_NAME]: {
+        command: process.execPath,
+        args: [path.join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(__dirname, 'permission-mcp.ts')],
+        env: { MARIA_MISSION_ID: missionId, MARIA_PERMISSION_TIMEOUT_MS: String(cfg.permissionTimeoutMs) },
+      },
+    },
+  });
+}
+
+function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSessionId: string | null): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
-  args.push('--append-system-prompt', headlessNote(cwd));
+  args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions));
+  if (cfg.interactivePermissions) {
+    args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
+  }
   if (cfg.allowedTools.length > 0) args.push('--allowedTools', cfg.allowedTools.join(','));
   if (cfg.model) args.push('--model', cfg.model);
   if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -66,9 +86,10 @@ export async function runMission(
   let stderrTail = '';
   let cancelled = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, resumeSessionId), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId), {
     cwd,
-    env: process.env,
+    // Laisse au serveur de permissions le temps d'attendre la décision de l'utilisateur.
+    env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000) },
     stdio: ['pipe', 'pipe', 'pipe'],
     // Groupe de processus dédié pour pouvoir tuer aussi les commandes lancées par l'agent.
     detached: process.platform !== 'win32',
@@ -164,6 +185,7 @@ export async function runMission(
     error = (result?.is_error && result.result) || stderrTail.trim() || `claude a quitté avec le code ${exit.code}`;
   }
 
+  await store.expirePermissions([mission.id]).catch((err: Error) => console.error(`[maria] ${err.message}`));
   sink.info(status === 'completed' ? 'Mission terminée.' : `Mission ${status === 'cancelled' ? 'annulée' : 'en échec'}.`);
   await sink.flush();
   await store.update(mission.id, {

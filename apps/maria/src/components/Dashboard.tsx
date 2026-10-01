@@ -6,6 +6,7 @@ import type { Mission, Workspace } from '@/lib/types';
 import { MissionForm } from './MissionForm';
 import { MissionList } from './MissionList';
 import { MissionView } from './MissionView';
+import { PermissionPrompt } from './PermissionPrompt';
 
 const WORKSPACE_REFRESH_MS = 30_000;
 
@@ -81,6 +82,7 @@ export function Dashboard({ email }: { email: string }) {
         <MissionForm workspaces={workspaces} onCreated={(m) => setSelectedId(m.id)} />
         <MissionList missions={missions} selectedId={selectedId} onSelect={setSelectedId} />
       </aside>
+      <PermissionPrompt missions={missions} />
       <section className="main">
         {selected ? (
           <MissionView key={selected.id} mission={selected} onFollowUp={(m) => setSelectedId(m.id)} />

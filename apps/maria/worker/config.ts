@@ -15,6 +15,9 @@ export interface WorkerConfig {
   model: string | null;
   ignorePaths: string[];
   pollMs: number;
+  /** Demandes d'autorisation affichées dans MarIA (sinon : refus automatique). */
+  interactivePermissions: boolean;
+  permissionTimeoutMs: number;
 }
 
 function required(name: string): string {
@@ -68,6 +71,11 @@ export function loadConfig(): WorkerConfig {
   const pollMs = Number(process.env.MARIA_POLL_MS ?? 2000);
   if (!Number.isFinite(pollMs) || pollMs < 250) throw new Error('MARIA_POLL_MS doit être >= 250');
 
+  const permissionTimeoutMs = Number(process.env.MARIA_PERMISSION_TIMEOUT_MS ?? 600_000);
+  if (!Number.isFinite(permissionTimeoutMs) || permissionTimeoutMs < 10_000) {
+    throw new Error('MARIA_PERMISSION_TIMEOUT_MS doit être >= 10000');
+  }
+
   return {
     supabaseUrl: required('SUPABASE_URL'),
     serviceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
@@ -78,5 +86,7 @@ export function loadConfig(): WorkerConfig {
     model: process.env.MARIA_MODEL?.trim() || null,
     ignorePaths: list(process.env.MARIA_IGNORE_PATHS ?? '.claude-flow/,.swarm/'),
     pollMs,
+    interactivePermissions: process.env.MARIA_INTERACTIVE_PERMISSIONS?.trim() !== '0',
+    permissionTimeoutMs,
   };
 }

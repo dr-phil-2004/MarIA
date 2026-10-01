@@ -106,7 +106,7 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
             key: `${id}-denials`,
             kind: 'info',
             level: 'warn',
-            text: `${denials.length} action(s) refusée(s) faute de permission — à ajouter dans MARIA_ALLOWED_TOOLS si besoin :\n${list.join('\n')}`,
+            text: `${denials.length} action(s) refusée(s) (par toi, ou sans réponse dans le délai). Pour ne plus avoir à les valider, ajoute-les à MARIA_ALLOWED_TOOLS :\n${list.join('\n')}`,
           });
         }
         items.push({ key: `${id}`, kind: 'done', isError: !!e.is_error, text: summarizeResult(e) });

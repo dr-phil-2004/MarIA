@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   if (orphans > 0) console.log(`[maria] ${orphans} mission(s) orpheline(s) marquée(s) en échec`);
   console.log(`[maria] worker prêt — dossiers : ${names.map((n) => `${n} → ${cfg.workspaces[n]}`).join(', ')}`);
   console.log(`[maria] permissions : mode ${cfg.permissionMode}, outils autorisés : ${cfg.allowedTools.join(', ') || '(aucun)'}`);
+  console.log(`[maria] autres actions : ${cfg.interactivePermissions ? `demandées dans MarIA (délai ${Math.round(cfg.permissionTimeoutMs / 1000)} s)` : 'refusées automatiquement'}`);
 
   // Une mission à la fois par dossier : deux agents dans le même dossier se marcheraient dessus.
   const running = new Map<string, Promise<void>>();
