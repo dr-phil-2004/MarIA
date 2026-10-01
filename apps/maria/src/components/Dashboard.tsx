@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
 import { MissionForm } from './MissionForm';
 import { MissionList } from './MissionList';
@@ -27,7 +27,7 @@ export function Dashboard({ email }: { email: string }) {
     // Abonnement avant le chargement initial pour ne rien rater entre les deux.
     const channel = supabase
       .channel('missions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'missions' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: MARIA_SCHEMA, table: 'missions' }, (payload) => {
         if (payload.eventType === 'DELETE') {
           const id = (payload.old as Partial<Mission>).id;
           setMissions((prev) => prev.filter((m) => m.id !== id));

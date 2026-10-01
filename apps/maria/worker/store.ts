@@ -16,10 +16,10 @@ function compact(value: unknown): unknown {
 }
 
 export class Store {
-  private readonly db: SupabaseClient;
+  private readonly db: SupabaseClient<any, 'maria'>;
 
   constructor(url: string, serviceRoleKey: string) {
-    this.db = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
+    this.db = createClient(url, serviceRoleKey, { auth: { persistSession: false }, db: { schema: 'maria' } });
   }
 
   async registerWorkspaces(names: string[]): Promise<void> {

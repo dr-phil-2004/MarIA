@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { buildFeed, type FeedItem } from '@/lib/feed';
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import { FINISHED_STATUSES, type Mission, type MissionEvent } from '@/lib/types';
 import { STATUS_LABEL } from './MissionList';
 
@@ -29,7 +29,7 @@ export function MissionView({ mission, onFollowUp }: Props) {
       .channel(`events-${mission.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'mission_events', filter: `mission_id=eq.${mission.id}` },
+        { event: 'INSERT', schema: MARIA_SCHEMA, table: 'mission_events', filter: `mission_id=eq.${mission.id}` },
         (payload) => merge([payload.new as MissionEvent]),
       )
       .subscribe();
