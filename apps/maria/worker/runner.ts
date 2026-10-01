@@ -9,9 +9,20 @@ const STATUS_POLL_MS = 2000;
 const KILL_GRACE_MS = 5000;
 const STDERR_TAIL = 4000;
 
-function buildArgs(cfg: WorkerConfig, resumeSessionId: string | null): string[] {
+/** Contexte ajouté au prompt système : l'agent tourne sans humain pour approuver quoi que ce soit. */
+function headlessNote(cwd: string): string {
+  return [
+    'Tu es exécuté en mode headless par MarIA : aucun humain ne peut approuver une permission pendant la mission.',
+    `Ton dossier de travail est ${cwd} ; lance les commandes directement depuis ce dossier, sans \`cd\`, et une commande à la fois (pas de && ni de |) pour qu'elles correspondent aux outils pré-autorisés.`,
+    "Si une commande est refusée, ne réessaie pas de variantes : continue avec ce que tu peux faire et liste en fin de réponse les commandes à autoriser.",
+    "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
+  ].join('\n');
+}
+
+function buildArgs(cfg: WorkerConfig, cwd: string, resumeSessionId: string | null): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
+  args.push('--append-system-prompt', headlessNote(cwd));
   if (cfg.allowedTools.length > 0) args.push('--allowedTools', cfg.allowedTools.join(','));
   if (cfg.model) args.push('--model', cfg.model);
   if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -54,7 +65,7 @@ export async function runMission(
   let stderrTail = '';
   let cancelled = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, resumeSessionId), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, resumeSessionId), {
     cwd,
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],

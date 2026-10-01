@@ -98,9 +98,20 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
           items.push({ key: `${id}-${i}`, kind: 'tool_result', agent, isError: !!res.is_error, text: truncate(resultText(res), 300) });
         });
         break;
-      case 'result':
+      case 'result': {
+        const denials = e.permission_denials ?? [];
+        if (denials.length > 0) {
+          const list = [...new Set(denials.map((d) => `${d.tool_name}: ${describeTool(d.tool_name, d.tool_input ?? {})}`))];
+          items.push({
+            key: `${id}-denials`,
+            kind: 'info',
+            level: 'warn',
+            text: `${denials.length} action(s) refusée(s) faute de permission — à ajouter dans MARIA_ALLOWED_TOOLS si besoin :\n${list.join('\n')}`,
+          });
+        }
         items.push({ key: `${id}`, kind: 'done', isError: !!e.is_error, text: summarizeResult(e) });
         break;
+      }
     }
   }
   return items;

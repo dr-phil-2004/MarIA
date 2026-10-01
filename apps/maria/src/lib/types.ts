@@ -78,6 +78,7 @@ export interface StreamEvent {
   total_cost_usd?: number;
   duration_ms?: number;
   num_turns?: number;
+  permission_denials?: Array<{ tool_name: string; tool_input?: Record<string, unknown> }>;
   // Événement 'maria' (émis par le worker)
   level?: 'info' | 'warn' | 'error';
   text?: string;

@@ -114,7 +114,7 @@ button.danger { background: var(--err); }
 .tool { font-weight: 600; margin-right: 6px; }
 .feed-text .text { white-space: pre-wrap; }
 .feed-result { color: var(--muted); font-size: 12px; padding-left: 16px !important; }
-.feed-info { color: var(--muted); font-size: 12px; font-style: italic; }
+.feed-info { color: var(--muted); font-size: 12px; font-style: italic; white-space: pre-wrap; }
 .feed-info.warn { color: var(--warn); }
 .feed-info.error, .feed-result.error, .feed-done.error { color: var(--err); }
 .feed-done { font-weight: 600; color: var(--ok); }
