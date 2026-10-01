@@ -68,6 +68,11 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
         items.push({ key: `${id}`, kind: 'info', level: e.level ?? 'info', text: e.text ?? '' });
         break;
       case 'system':
+        if (e.subtype === 'task_notification' && e.tool_use_id) {
+          const name = agentByToolUse.get(e.tool_use_id) ?? 'sous-agent';
+          const label = e.status === 'completed' ? 'a terminé' : e.status === 'failed' ? 'a échoué' : `s’est arrêté (${e.status ?? '?'})`;
+          items.push({ key: `${id}`, kind: 'info', level: e.status === 'failed' ? 'error' : 'info', text: `Sous-agent ${name} ${label}.` });
+        }
         if (e.subtype === 'init') {
           items.push({
             key: `${id}`,
@@ -114,6 +119,9 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
       }
     }
   }
+  // Avec des sous-agents asynchrones, Claude Code émet un résultat par tour : seul le dernier clôt la mission.
+  const results = items.filter((i): i is Extract<FeedItem, { kind: 'done' }> => i.kind === 'done');
+  for (const r of results.slice(0, -1)) r.text = r.text.replace(/^(Terminé|Échec)/, 'Tour terminé');
   return items;
 }
 

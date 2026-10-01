@@ -90,6 +90,12 @@ export interface StreamEvent {
   duration_ms?: number;
   num_turns?: number;
   permission_denials?: Array<{ tool_name: string; tool_input?: Record<string, unknown> }>;
+  // Événements system task_* (sous-agents)
+  tool_use_id?: string;
+  status?: string;
+  is_backgrounded?: boolean;
+  last_tool_name?: string;
+  usage?: { tool_uses?: number };
   // Événement 'maria' (émis par le worker)
   level?: 'info' | 'warn' | 'error';
   text?: string;
