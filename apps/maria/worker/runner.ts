@@ -23,6 +23,7 @@ function headlessNote(cwd: string, interactive: boolean, branch: string | null):
     `Ton dossier de travail est ${cwd} ; lance les commandes directement depuis ce dossier, sans \`cd\`, et une commande à la fois (pas de && ni de |) pour qu'elles correspondent aux outils pré-autorisés.`,
     'Écris les commandes sous leur forme la plus simple, sans option de changement de dossier (pas de `git -C`, `npm --prefix`, chemins absolus vers le dossier de travail) : par exemple `git status`, `npm test`.',
     "Si une commande est refusée, ne réessaie pas de variantes : continue avec ce que tu peux faire et liste en fin de réponse les commandes à autoriser.",
+    "Si tu délègues à des sous-agents (outil Agent) : ils n'ont pas d'outil pour se parler entre eux. Lance-les en mode synchrone, l'un après l'autre quand ils dépendent les uns des autres (en parallèle seulement s'ils sont indépendants), et transmets toi-même le résultat de chacun dans la consigne du suivant. Ne leur demande pas d'attendre un message d'un autre agent, et ne vérifie pas leur état en boucle (pas de ScheduleWakeup ni de ListAgents répétés).",
     interactive
       ? "Si tu as besoin d'une décision de l'utilisateur pour avancer, utilise l'outil AskUserQuestion : la question s'affiche dans MarIA et sa réponse te revient directement."
       : "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",

@@ -57,6 +57,8 @@ function resultText(block: ToolResultBlock): string {
  */
 export function buildFeed(events: MissionEvent[]): FeedItem[] {
   const agentByToolUse = new Map<string, string>();
+  const resultEvents: Array<{ item: Extract<FeedItem, { kind: 'done' }>; event: StreamEvent }> = [];
+  let sessionShown = false;
   const items: FeedItem[] = [];
 
   for (const { id, payload: e } of events) {
@@ -68,12 +70,15 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
         items.push({ key: `${id}`, kind: 'info', level: e.level ?? 'info', text: e.text ?? '' });
         break;
       case 'system':
-        if (e.subtype === 'task_notification' && e.tool_use_id) {
-          const name = agentByToolUse.get(e.tool_use_id) ?? 'sous-agent';
+        // Les commandes lancées en arrière-plan émettent aussi task_notification : on ne garde que les sous-agents.
+        if (e.subtype === 'task_notification' && e.tool_use_id && agentByToolUse.has(e.tool_use_id)) {
+          const name = agentByToolUse.get(e.tool_use_id);
           const label = e.status === 'completed' ? 'a terminé' : e.status === 'failed' ? 'a échoué' : `s’est arrêté (${e.status ?? '?'})`;
           items.push({ key: `${id}`, kind: 'info', level: e.status === 'failed' ? 'error' : 'info', text: `Sous-agent ${name} ${label}.` });
         }
-        if (e.subtype === 'init') {
+        // Avec des sous-agents asynchrones, Claude Code renvoie un init à chaque reprise : on n'affiche que le premier.
+        if (e.subtype === 'init' && !sessionShown) {
+          sessionShown = true;
           items.push({
             key: `${id}`,
             kind: 'info',
@@ -114,21 +119,25 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
             text: `${denials.length} action(s) refusée(s) (par toi, ou sans réponse dans le délai). Pour ne plus avoir à les valider, ajoute-les à MARIA_ALLOWED_TOOLS :\n${list.join('\n')}`,
           });
         }
-        items.push({ key: `${id}`, kind: 'done', isError: !!e.is_error, text: summarizeResult(e) });
+        const item: Extract<FeedItem, { kind: 'done' }> = { key: `${id}`, kind: 'done', isError: !!e.is_error, text: summarizeResult(e, true) };
+        resultEvents.push({ item, event: e });
+        items.push(item);
         break;
       }
     }
   }
   // Avec des sous-agents asynchrones, Claude Code émet un résultat par tour : seul le dernier clôt la mission.
-  const results = items.filter((i): i is Extract<FeedItem, { kind: 'done' }> => i.kind === 'done');
-  for (const r of results.slice(0, -1)) r.text = r.text.replace(/^(Terminé|Échec)/, 'Tour terminé');
+  // Le coût est cumulé depuis le début : on ne l'affiche que sur la ligne finale.
+  for (const { item, event } of resultEvents.slice(0, -1)) {
+    item.text = summarizeResult(event, false).replace(/^(Terminé|Échec)/, 'Tour terminé');
+  }
   return items;
 }
 
-function summarizeResult(e: StreamEvent): string {
+function summarizeResult(e: StreamEvent, withCost: boolean): string {
   const parts: string[] = [];
   if (e.duration_ms != null) parts.push(`${Math.round(e.duration_ms / 1000)} s`);
   if (e.num_turns != null) parts.push(`${e.num_turns} tours`);
-  if (e.total_cost_usd != null) parts.push(`$${e.total_cost_usd.toFixed(4)}`);
+  if (withCost && e.total_cost_usd != null) parts.push(`$${e.total_cost_usd.toFixed(4)}`);
   return `${e.is_error ? 'Échec' : 'Terminé'}${parts.length ? ` — ${parts.join(' · ')}` : ''}`;
 }
