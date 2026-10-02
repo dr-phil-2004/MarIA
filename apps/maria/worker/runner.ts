@@ -52,6 +52,8 @@ function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSess
   if (cfg.interactivePermissions) {
     args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
   }
+  // Pas de terminal pour répondre aux questions interactives : l'agent pose ses questions en texte (réponse via « Continuer »).
+  args.push('--disallowedTools', 'AskUserQuestion');
   if (cfg.allowedTools.length > 0) args.push('--allowedTools', cfg.allowedTools.join(','));
   if (cfg.model) args.push('--model', cfg.model);
   if (resumeSessionId) args.push('--resume', resumeSessionId);
