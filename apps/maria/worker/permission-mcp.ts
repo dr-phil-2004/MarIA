@@ -27,10 +27,18 @@ function logError(message: string): void {
 
 export type Decision = 'allowed' | 'denied' | 'expired';
 
+export interface PermissionAnswer {
+  decision: Decision;
+  /** Réponses aux questions d'AskUserQuestion : { "<question>": "<réponse>" }. */
+  response?: Record<string, string> | null;
+}
+
 export interface PermissionBackend {
   /** Crée la demande et renvoie la décision de l'utilisateur (ou 'expired' après le délai). */
-  ask(toolName: string, input: Record<string, unknown>): Promise<Decision>;
+  ask(toolName: string, input: Record<string, unknown>): Promise<PermissionAnswer>;
 }
+
+const QUESTION_TOOL = 'AskUserQuestion';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -73,22 +81,25 @@ export function createHandler(backend: PermissionBackend) {
       case 'tools/call': {
         const args = (msg.params?.arguments ?? {}) as { tool_name?: string; input?: Record<string, unknown> };
         const input = args.input ?? {};
+        const toolName = args.tool_name ?? 'inconnu';
         let decision: Decision | 'error';
+        let response: Record<string, string> | null = null;
         try {
-          decision = await backend.ask(args.tool_name ?? 'inconnu', input);
+          ({ decision, response = null } = await backend.ask(toolName, input));
         } catch (err) {
           // En cas de panne on refuse : jamais d'autorisation sans décision explicite.
           decision = 'error';
           logError((err as Error).message);
         }
+        const isQuestion = toolName === QUESTION_TOOL;
         const denyMessages = {
-          denied: 'Action refusée par l’utilisateur dans MarIA.',
-          expired: 'Pas de réponse de l’utilisateur dans le délai imparti : action refusée.',
+          denied: isQuestion ? 'L’utilisateur a préféré ne pas répondre à ces questions : continue avec des choix raisonnables, et signale-les.' : 'Action refusée par l’utilisateur dans MarIA.',
+          expired: isQuestion ? 'Pas de réponse de l’utilisateur dans le délai imparti : continue avec des choix raisonnables, et signale-les.' : 'Pas de réponse de l’utilisateur dans le délai imparti : action refusée.',
           error: 'Impossible de soumettre la demande à MarIA (erreur technique) : action refusée.',
         };
         const answer =
           decision === 'allowed'
-            ? { behavior: 'allow', updatedInput: input }
+            ? { behavior: 'allow', updatedInput: isQuestion ? { ...input, answers: response ?? {} } : input }
             : { behavior: 'deny', message: denyMessages[decision] };
         return reply({ content: [{ type: 'text', text: JSON.stringify(answer) }] });
       }
@@ -125,12 +136,12 @@ function supabaseBackend(): PermissionBackend {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, POLL_MS));
-        const { data: row, error: err } = await db.from('permission_requests').select('status').eq('id', data.id).single();
+        const { data: row, error: err } = await db.from('permission_requests').select('status, response').eq('id', data.id).single();
         if (err) continue; // erreur réseau passagère : on réessaie
-        if (row.status !== 'pending') return row.status as Decision;
+        if (row.status !== 'pending') return { decision: row.status as Decision, response: row.response as Record<string, string> | null };
       }
       await db.from('permission_requests').update({ status: 'expired' }).eq('id', data.id).eq('status', 'pending');
-      return 'expired';
+      return { decision: 'expired' };
     },
   };
 }

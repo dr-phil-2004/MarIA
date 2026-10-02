@@ -23,7 +23,9 @@ function headlessNote(cwd: string, interactive: boolean, branch: string | null):
     `Ton dossier de travail est ${cwd} ; lance les commandes directement depuis ce dossier, sans \`cd\`, et une commande à la fois (pas de && ni de |) pour qu'elles correspondent aux outils pré-autorisés.`,
     'Écris les commandes sous leur forme la plus simple, sans option de changement de dossier (pas de `git -C`, `npm --prefix`, chemins absolus vers le dossier de travail) : par exemple `git status`, `npm test`.',
     "Si une commande est refusée, ne réessaie pas de variantes : continue avec ce que tu peux faire et liste en fin de réponse les commandes à autoriser.",
-    "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
+    interactive
+      ? "Si tu as besoin d'une décision de l'utilisateur pour avancer, utilise l'outil AskUserQuestion : la question s'affiche dans MarIA et sa réponse te revient directement."
+      : "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
     ...(branch
       ? [
           `Tu travailles dans un worktree git isolé, sur la branche dédiée ${branch}. Ne change pas de branche, ne fais ni git push ni git commit : MarIA commitera tes modifications à la fin, puis l'utilisateur décidera de fusionner ou non.`,
@@ -52,8 +54,9 @@ function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSess
   if (cfg.interactivePermissions) {
     args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
   }
-  // Pas de terminal pour répondre aux questions interactives : l'agent pose ses questions en texte (réponse via « Continuer »).
-  args.push('--disallowedTools', 'AskUserQuestion');
+  // Les questions (AskUserQuestion) s'affichent dans MarIA via le serveur de permissions ; sans lui, personne ne
+  // peut y répondre : l'agent doit alors poser ses questions en texte (réponse via « Continuer »).
+  if (!cfg.interactivePermissions) args.push('--disallowedTools', 'AskUserQuestion');
   if (cfg.allowedTools.length > 0) args.push('--allowedTools', cfg.allowedTools.join(','));
   if (cfg.model) args.push('--model', cfg.model);
   if (resumeSessionId) args.push('--resume', resumeSessionId);

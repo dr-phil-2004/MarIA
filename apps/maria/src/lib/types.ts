@@ -114,5 +114,14 @@ export interface PermissionRequest {
   tool_name: string;
   input: Record<string, unknown>;
   status: 'pending' | 'allowed' | 'denied' | 'expired';
+  response: Record<string, string> | null;
   created_at: string;
+}
+
+/** Entrée de l'outil AskUserQuestion de Claude Code. */
+export interface AgentQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: Array<{ label: string; description?: string }>;
 }

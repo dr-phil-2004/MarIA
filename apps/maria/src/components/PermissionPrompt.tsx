@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { describeTool } from '@/lib/feed';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
-import type { Mission, PermissionRequest } from '@/lib/types';
+import type { AgentQuestion, Mission, PermissionRequest } from '@/lib/types';
+import { QuestionForm } from './QuestionForm';
 
 const BASE_TITLE = 'MarIA';
 
@@ -46,12 +47,26 @@ export function PermissionPrompt({ missions }: { missions: Mission[] }) {
 
   // Signale une demande en attente dans l'onglet, même quand MarIA n'est pas au premier plan.
   useEffect(() => {
-    document.title = pending.length > 0 ? `(${pending.length}) Autorisation requise — ${BASE_TITLE}` : BASE_TITLE;
+    document.title = pending.length > 0 ? `(${pending.length}) Action requise — ${BASE_TITLE}` : BASE_TITLE;
   }, [pending.length]);
 
   const current = pending[0];
   if (!current) return null;
   const mission = missions.find((m) => m.id === current.mission_id);
+
+  const questions =
+    current.tool_name === 'AskUserQuestion' && Array.isArray(current.input.questions)
+      ? (current.input.questions as AgentQuestion[])
+      : null;
+
+  async function answer(answers: Record<string, string>) {
+    setBusy(true);
+    setError(null);
+    const { error: err } = await getSupabase().rpc('answer_question', { p_id: current.id, p_answers: answers });
+    setBusy(false);
+    if (err) setError(err.message);
+    else setPending((prev) => prev.filter((r) => r.id !== current.id));
+  }
 
   async function decide(allow: boolean) {
     setBusy(true);
@@ -60,6 +75,24 @@ export function PermissionPrompt({ missions }: { missions: Mission[] }) {
     setBusy(false);
     if (err) setError(err.message);
     else setPending((prev) => prev.filter((r) => r.id !== current.id));
+  }
+
+  if (questions) {
+    return (
+      <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="perm-title">
+        <div className="card modal">
+          <h2 id="perm-title" className="question-title">L’agent a une question</h2>
+          {mission && (
+            <p className="muted small">
+              Mission « {mission.prompt.length > 80 ? `${mission.prompt.slice(0, 80)}…` : mission.prompt} » · {mission.workspace}
+            </p>
+          )}
+          <QuestionForm questions={questions} busy={busy} onAnswer={answer} onSkip={() => decide(false)} />
+          {error && <p className="error small">{error}</p>}
+          {pending.length > 1 && <p className="muted small">+{pending.length - 1} autre(s) demande(s) en attente</p>}
+        </div>
+      </div>
+    );
   }
 
   return (

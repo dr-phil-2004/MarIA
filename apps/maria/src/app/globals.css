@@ -169,3 +169,12 @@ button.danger { background: var(--err); }
 .check input { width: auto; margin-top: 2px; }
 .branch { display: grid; gap: 8px; }
 .branch code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.modal h2.question-title { color: var(--accent); }
+.questions { display: grid; gap: 14px; }
+.question { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 0; display: grid; gap: 6px; }
+.question legend { padding: 0 4px; font-weight: 600; }
+.question .badge { justify-self: start; }
+.option { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.option input[type='radio'], .option input[type='checkbox'] { width: auto; flex: none; }
+.option .other { flex: 1; padding: 4px 8px; }
