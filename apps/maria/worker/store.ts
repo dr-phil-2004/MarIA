@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AgentInfo } from '../src/lib/mentions';
-import type { Mission, MissionStatus, StreamEvent } from '../src/lib/types';
+import type { MemoryEntry, Mission, MissionStatus, StreamEvent } from '../src/lib/types';
 
 const MAX_STRING = 4000;
 
@@ -32,6 +32,27 @@ export class Store {
       throw new Error(`registerWorkspaces: ${error.message} — applique la migration supabase/migrations/0006_workspace_agents.sql`);
     }
     if (error) throw new Error(`registerWorkspaces: ${error.message}`);
+  }
+
+  /** id -> updated_at (ms) des entrées mémoire déjà copiées pour ce dossier. */
+  async memoryIndex(workspace: string): Promise<Map<string, number>> {
+    const { data, error } = await this.db.from('memory_entries').select('id, updated_at').eq('workspace', workspace).limit(5000);
+    if (error) throw new Error(`memoryIndex: ${error.message}${/memory_entries/.test(error.message) ? ' — applique la migration supabase/migrations/0007_ruflo_memory.sql' : ''}`);
+    return new Map((data as Array<{ id: string; updated_at: string | null }>).map((r) => [r.id, Date.parse(r.updated_at ?? '')]));
+  }
+
+  async upsertMemory(entries: MemoryEntry[]): Promise<void> {
+    for (let i = 0; i < entries.length; i += 200) {
+      const { error } = await this.db.from('memory_entries').upsert(entries.slice(i, i + 200));
+      if (error) throw new Error(`upsertMemory: ${error.message}`);
+    }
+  }
+
+  async deleteMemory(workspace: string, ids: string[]): Promise<void> {
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await this.db.from('memory_entries').delete().eq('workspace', workspace).in('id', ids.slice(i, i + 100));
+      if (error) throw new Error(`deleteMemory: ${error.message}`);
+    }
   }
 
   /** Clôt les demandes d'autorisation restées sans réponse (mission terminée ou worker redémarré). */

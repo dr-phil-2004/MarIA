@@ -3,6 +3,7 @@
 import { runWorktreeAction } from './actions';
 import { listAgents } from './agents';
 import { loadConfig } from './config';
+import { MemorySync, sqliteAvailable } from './memory';
 import { runMission } from './runner';
 import { Store } from './store';
 import type { Mission } from '../src/lib/types';
@@ -26,6 +27,30 @@ async function main(): Promise<void> {
   console.log(`[maria] worker prêt — dossiers : ${names.map((n) => `${n} → ${cfg.workspaces[n]}`).join(', ')}`);
   console.log(`[maria] permissions : mode ${cfg.permissionMode}, outils autorisés : ${cfg.allowedTools.join(', ') || '(aucun)'}`);
   console.log(`[maria] autres actions : ${cfg.interactivePermissions ? `demandées dans MarIA (délai ${Math.round(cfg.permissionTimeoutMs / 1000)} s)` : 'refusées automatiquement'}`);
+  const memory = cfg.memoryDb && sqliteAvailable() ? new MemorySync(store, cfg.memoryDb) : null;
+  console.log(
+    `[maria] mémoire Ruflo : ${memory ? `copiée depuis ${cfg.memoryDb} toutes les ${HEARTBEAT_MS / 1000} s` : cfg.memoryDb ? 'désactivée (node:sqlite indisponible : Node.js 22.13 ou plus requis)' : 'désactivée (MARIA_MEMORY_DB)'}`,
+  );
+  // Une erreur de synchronisation n'est affichée qu'une fois tant qu'elle se répète.
+  const lastMemoryError = new Map<string, string>();
+  let memoryBusy = false;
+  const syncMemory = async () => {
+    if (!memory || memoryBusy) return;
+    memoryBusy = true;
+    for (const name of names) {
+      try {
+        const { upserted, deleted } = await memory.sync(name, cfg.workspaces[name]);
+        if (upserted || deleted) console.log(`[maria] mémoire ${name} : ${upserted} entrée(s) copiée(s), ${deleted} retirée(s)`);
+        lastMemoryError.delete(name);
+      } catch (err) {
+        const message = (err as Error).message;
+        if (lastMemoryError.get(name) !== message) console.error(`[maria] mémoire ${name} : ${message}`);
+        lastMemoryError.set(name, message);
+      }
+    }
+    memoryBusy = false;
+  };
+  void syncMemory();
   console.log(`[maria] branches isolées : jusqu'à ${cfg.maxParallel} en parallèle par dossier, dans ${cfg.worktreeRoot}`);
 
   // Dans le dossier principal : une seule mission « sur place » (ou fusion) à la fois, sinon elles se marcheraient dessus.
@@ -88,6 +113,7 @@ async function main(): Promise<void> {
   const pollTimer = setInterval(() => void poll(), cfg.pollMs);
   const heartbeatTimer = setInterval(() => {
     register().catch((err: Error) => console.error(`[maria] ${err.message}`));
+    void syncMemory();
   }, HEARTBEAT_MS);
   void poll();
 

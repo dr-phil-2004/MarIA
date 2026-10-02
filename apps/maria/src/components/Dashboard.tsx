@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
+import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionList } from './MissionList';
 import { MissionView } from './MissionView';
@@ -14,6 +15,7 @@ export function Dashboard({ email }: { email: string }) {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<'missions' | 'memory'>('missions');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +74,14 @@ export function Dashboard({ email }: { email: string }) {
     <div className="app">
       <header className="topbar">
         <strong>MarIA</strong>
+        <nav className="tabs">
+          <button className={`tab ${view === 'missions' ? 'active' : ''}`} onClick={() => setView('missions')}>
+            Missions
+          </button>
+          <button className={`tab ${view === 'memory' ? 'active' : ''}`} onClick={() => setView('memory')}>
+            Mémoire
+          </button>
+        </nav>
         <span className="muted">{email}</span>
         <button className="link" onClick={() => getSupabase().auth.signOut()}>
           Déconnexion
@@ -79,12 +89,27 @@ export function Dashboard({ email }: { email: string }) {
       </header>
       {error && <p className="error banner">{error}</p>}
       <aside className="sidebar">
-        <MissionForm workspaces={workspaces} onCreated={(m) => setSelectedId(m.id)} />
-        <MissionList missions={missions} selectedId={selectedId} onSelect={setSelectedId} />
+        <MissionForm
+          workspaces={workspaces}
+          onCreated={(m) => {
+            setSelectedId(m.id);
+            setView('missions');
+          }}
+        />
+        <MissionList
+          missions={missions}
+          selectedId={selectedId}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setView('missions');
+          }}
+        />
       </aside>
       <PermissionPrompt missions={missions} />
       <section className="main">
-        {selected ? (
+        {view === 'memory' ? (
+          <MemoryView workspaces={workspaces} />
+        ) : selected ? (
           <MissionView key={selected.id} mission={selected} onFollowUp={(m) => setSelectedId(m.id)} />
         ) : (
           <p className="muted empty">Lance une mission ou sélectionne-en une dans la liste.</p>

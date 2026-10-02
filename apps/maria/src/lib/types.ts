@@ -59,6 +59,21 @@ export interface Workspace {
   agents: AgentInfo[] | null;
 }
 
+/** Entrée de la mémoire Ruflo (.swarm/memory.db), copiée par le worker. */
+export interface MemoryEntry {
+  workspace: string;
+  id: string;
+  namespace: string;
+  key: string;
+  content: string;
+  type: string | null;
+  tags: string[] | null;
+  provenance: string | null;
+  access_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export const FINISHED_STATUSES: readonly MissionStatus[] = ['completed', 'failed', 'cancelled'];
 
 // --- Événements stream-json de Claude Code (sous-ensemble utilisé par MarIA) ---

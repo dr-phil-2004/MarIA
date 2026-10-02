@@ -29,6 +29,8 @@ export interface WorkerConfig {
   worktreeCopies: string[];
   /** Nombre maximal de missions en worktree simultanées par dossier. */
   maxParallel: number;
+  /** Base mémoire Ruflo, relative à chaque dossier (`.swarm/memory.db`) ; null = pas de synchronisation. */
+  memoryDb: string | null;
 }
 
 function required(name: string): string {
@@ -113,5 +115,6 @@ export function loadConfig(): WorkerConfig {
     worktreeLinks: list(process.env.MARIA_WORKTREE_LINKS ?? '.claude-flow,.swarm,node_modules'),
     worktreeCopies: list(process.env.MARIA_WORKTREE_COPY ?? '.mcp.json,.claude,CLAUDE.md'),
     maxParallel,
+    memoryDb: ['', '0'].includes(process.env.MARIA_MEMORY_DB?.trim() ?? '.swarm/memory.db') ? null : process.env.MARIA_MEMORY_DB?.trim() || '.swarm/memory.db',
   };
 }
