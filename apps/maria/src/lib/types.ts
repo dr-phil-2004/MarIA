@@ -1,4 +1,5 @@
 // Types partagés entre le front et le worker (miroir du schéma SQL).
+import type { AgentInfo } from './mentions';
 
 export type MissionStatus =
   | 'queued'
@@ -19,10 +20,27 @@ export interface Mission {
   error: string | null;
   files_changed: string[];
   cost_usd: number | null;
+  ruflo_agents: RufloAgent[] | null;
+  use_worktree: boolean;
+  branch: string | null;
+  worktree_path: string | null;
+  base_commit: string | null;
+  worktree_state: 'active' | 'merged' | 'discarded' | null;
+  worktree_action: 'merge' | 'discard' | null;
+  worktree_error: string | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+/** Agent du registre Ruflo, tel que renvoyé par `ruflo agent list --format json`. */
+export interface RufloAgent {
+  agentId: string;
+  agentType: string;
+  status: string;
+  createdAt?: string;
+  lastActivityAt?: string;
 }
 
 export interface MissionEvent {
@@ -37,6 +55,23 @@ export interface MissionEvent {
 export interface Workspace {
   name: string;
   last_seen_at: string;
+  /** Agents disponibles dans le dossier (mentions « @agent »), publiés par le worker. */
+  agents: AgentInfo[] | null;
+}
+
+/** Entrée de la mémoire Ruflo (.swarm/memory.db), copiée par le worker. */
+export interface MemoryEntry {
+  workspace: string;
+  id: string;
+  namespace: string;
+  key: string;
+  content: string;
+  type: string | null;
+  tags: string[] | null;
+  provenance: string | null;
+  access_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export const FINISHED_STATUSES: readonly MissionStatus[] = ['completed', 'failed', 'cancelled'];
@@ -71,6 +106,7 @@ export interface StreamEvent {
   parent_tool_use_id?: string | null;
   model?: string;
   tools?: string[];
+  mcp_servers?: Array<{ name: string; status: string }>;
   message?: { content?: ContentBlock[] | string };
   // Événement 'result'
   is_error?: boolean;
@@ -78,7 +114,32 @@ export interface StreamEvent {
   total_cost_usd?: number;
   duration_ms?: number;
   num_turns?: number;
+  permission_denials?: Array<{ tool_name: string; tool_input?: Record<string, unknown> }>;
+  // Événements system task_* (sous-agents)
+  tool_use_id?: string;
+  status?: string;
+  is_backgrounded?: boolean;
+  last_tool_name?: string;
+  usage?: { tool_uses?: number };
   // Événement 'maria' (émis par le worker)
   level?: 'info' | 'warn' | 'error';
   text?: string;
+}
+
+export interface PermissionRequest {
+  id: string;
+  mission_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  status: 'pending' | 'allowed' | 'denied' | 'expired';
+  response: Record<string, string> | null;
+  created_at: string;
+}
+
+/** Entrée de l'outil AskUserQuestion de Claude Code. */
+export interface AgentQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: Array<{ label: string; description?: string }>;
 }

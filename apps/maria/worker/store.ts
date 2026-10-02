@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Mission, MissionStatus, StreamEvent } from '../src/lib/types';
+import type { AgentInfo } from '../src/lib/mentions';
+import type { MemoryEntry, Mission, MissionStatus, StreamEvent } from '../src/lib/types';
 
 const MAX_STRING = 4000;
 
@@ -22,12 +23,47 @@ export class Store {
     this.db = createClient(url, serviceRoleKey, { auth: { persistSession: false }, db: { schema: 'maria' } });
   }
 
-  async registerWorkspaces(names: string[]): Promise<void> {
+  async registerWorkspaces(workspaces: Array<{ name: string; agents: AgentInfo[] }>): Promise<void> {
     const now = new Date().toISOString();
     const { error } = await this.db
       .from('workspaces')
-      .upsert(names.map((name) => ({ name, last_seen_at: now })));
+      .upsert(workspaces.map(({ name, agents }) => ({ name, agents, last_seen_at: now })));
+    if (error && /agents/.test(error.message)) {
+      throw new Error(`registerWorkspaces: ${error.message} — applique la migration supabase/migrations/0006_workspace_agents.sql`);
+    }
     if (error) throw new Error(`registerWorkspaces: ${error.message}`);
+  }
+
+  /** id -> updated_at (ms) des entrées mémoire déjà copiées pour ce dossier. */
+  async memoryIndex(workspace: string): Promise<Map<string, number>> {
+    const { data, error } = await this.db.from('memory_entries').select('id, updated_at').eq('workspace', workspace).limit(5000);
+    if (error) throw new Error(`memoryIndex: ${error.message}${/memory_entries/.test(error.message) ? ' — applique la migration supabase/migrations/0007_ruflo_memory.sql' : ''}`);
+    return new Map((data as Array<{ id: string; updated_at: string | null }>).map((r) => [r.id, Date.parse(r.updated_at ?? '')]));
+  }
+
+  async upsertMemory(entries: MemoryEntry[]): Promise<void> {
+    for (let i = 0; i < entries.length; i += 200) {
+      const { error } = await this.db.from('memory_entries').upsert(entries.slice(i, i + 200));
+      if (error) throw new Error(`upsertMemory: ${error.message}`);
+    }
+  }
+
+  async deleteMemory(workspace: string, ids: string[]): Promise<void> {
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await this.db.from('memory_entries').delete().eq('workspace', workspace).in('id', ids.slice(i, i + 100));
+      if (error) throw new Error(`deleteMemory: ${error.message}`);
+    }
+  }
+
+  /** Clôt les demandes d'autorisation restées sans réponse (mission terminée ou worker redémarré). */
+  async expirePermissions(missionIds: string[]): Promise<void> {
+    if (missionIds.length === 0) return;
+    const { error } = await this.db
+      .from('permission_requests')
+      .update({ status: 'expired' })
+      .in('mission_id', missionIds)
+      .eq('status', 'pending');
+    if (error) throw new Error(`expirePermissions: ${error.message}`);
   }
 
   /** Missions restées "running" après un arrêt brutal du worker. */
@@ -39,14 +75,46 @@ export class Store {
       .in('status', ['running', 'cancel_requested'])
       .select('id');
     if (error) throw new Error(`failOrphans: ${error.message}`);
+    await this.expirePermissions(data.map((m) => m.id));
     return data.length;
   }
 
-  async claimNext(workspaces: string[]): Promise<Mission | null> {
-    const { data, error } = await this.db.rpc('claim_next_mission', { p_workspaces: workspaces });
+  /** Réserve la prochaine mission : « sur place » pour les dossiers libres, en worktree pour ceux qui ont de la capacité. */
+  async claimNext(inplace: string[], worktree: string[]): Promise<Mission | null> {
+    const { data, error } = await this.db.rpc('claim_next_mission', { p_inplace: inplace, p_worktree: worktree });
     if (error) throw new Error(`claimNext: ${error.message}`);
     const rows = data as Mission[] | null;
     return rows?.[0] ?? null;
+  }
+
+  /** Missions dont l'utilisateur a demandé la fusion ou l'abandon de la branche. */
+  async pendingWorktreeActions(workspaces: string[]): Promise<Mission[]> {
+    const { data, error } = await this.db
+      .from('missions')
+      .select('*')
+      .in('workspace', workspaces)
+      .eq('worktree_state', 'active')
+      .not('worktree_action', 'is', null)
+      .order('created_at');
+    if (error) throw new Error(`pendingWorktreeActions: ${error.message}`);
+    return data as Mission[];
+  }
+
+  /** Une mission tourne-t-elle encore dans ce worktree ? */
+  async worktreeBusy(worktreePath: string): Promise<boolean> {
+    const { count, error } = await this.db
+      .from('missions')
+      .select('id', { count: 'exact', head: true })
+      .eq('worktree_path', worktreePath)
+      .in('status', ['queued', 'running', 'cancel_requested']);
+    if (error) throw new Error(`worktreeBusy: ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
+  /** Met à jour toutes les missions qui partagent un worktree (une mission et ses suites). */
+  async updateWorktree(worktreePath: string, patch: Partial<Mission>): Promise<void> {
+    const { error } = await this.db.from('missions').update(patch).eq('worktree_path', worktreePath);
+    if (error) throw new Error(`updateWorktree: ${error.message}`);
   }
 
   async getMission(id: string): Promise<Mission | null> {

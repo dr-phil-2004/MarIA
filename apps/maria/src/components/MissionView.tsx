@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { buildAgents } from '@/lib/agents';
 import { buildFeed, type FeedItem } from '@/lib/feed';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import { FINISHED_STATUSES, type Mission, type MissionEvent } from '@/lib/types';
+import { AgentsPanel } from './AgentsPanel';
+import { BranchPanel } from './BranchPanel';
 import { STATUS_LABEL } from './MissionList';
 
 interface Props {
@@ -52,6 +55,7 @@ export function MissionView({ mission, onFollowUp }: Props) {
 
   const feed = useMemo(() => buildFeed(events), [events]);
   const finished = FINISHED_STATUSES.includes(mission.status);
+  const agents = useMemo(() => buildAgents(events, finished), [events, finished]);
 
   useEffect(() => {
     if (!finished) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -89,7 +93,10 @@ export function MissionView({ mission, onFollowUp }: Props) {
           <div ref={bottomRef} />
         </div>
 
-        <div className="files card">
+        <div className="side-col">
+          <BranchPanel mission={mission} finished={finished} />
+          <AgentsPanel summary={agents} rufloAgents={mission.ruflo_agents ?? null} finished={finished} />
+          <div className="files card">
           <h2>Fichiers modifiés</h2>
           {!finished && <p className="muted small">Calculés à la fin de la mission.</p>}
           {finished && mission.files_changed.length === 0 && <p className="muted small">Aucun fichier modifié.</p>}
@@ -98,6 +105,7 @@ export function MissionView({ mission, onFollowUp }: Props) {
               <li key={f}><code>{f}</code></li>
             ))}
           </ul>
+          </div>
         </div>
       </div>
 
@@ -143,7 +151,7 @@ function FollowUpForm({ parent, onCreated }: { parent: Mission; onCreated: (m: M
     setBusy(true);
     const { data, error: err } = await getSupabase()
       .from('missions')
-      .insert({ prompt: prompt.trim(), workspace: parent.workspace, parent_id: parent.id })
+      .insert({ prompt: prompt.trim(), workspace: parent.workspace, parent_id: parent.id, use_worktree: parent.use_worktree })
       .select()
       .single();
     setBusy(false);
