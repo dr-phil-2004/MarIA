@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Bell, Brain, House, LogOut, Moon, PanelLeft, Plug, Plus, Search, Ticket, Users, type LucideProps } from 'lucide-react';
-import { AgentAvatar, LoadBars } from './AgentAvatar';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { Bell, Brain, House, LogOut, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
+import { AgentAvatar, LoadBars, loadLevel, loadTitle } from './AgentAvatar';
 
 export type Page =
   | { kind: 'overview' }
@@ -12,6 +12,7 @@ export type Page =
   | { kind: 'notifications' }
   | { kind: 'brains' }
   | { kind: 'connectors' }
+  | { kind: 'agents' }
   | { kind: 'new-agent' }
   | { kind: 'agent'; name: string };
 
@@ -30,10 +31,11 @@ export const NAV_LABEL: Record<StaticKind, string> = {
   notifications: 'Notifications',
   brains: 'Brains',
   connectors: 'Connecteurs',
+  agents: 'Bibliothèque d’agents',
   'new-agent': 'Nouvel agent',
 };
 
-const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
+export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
   { title: null, items: [{ kind: 'overview', label: NAV_LABEL.overview, icon: House }] },
   {
     title: 'Category',
@@ -47,6 +49,8 @@ const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
   { title: 'Settings', items: [{ kind: 'connectors', label: NAV_LABEL.connectors, icon: Plug }] },
 ];
 
+/** Nombre d'agents affichés dans la barre ; les autres sont dans la bibliothèque. */
+const SIDEBAR_AGENTS = 4;
 const COLLAPSED_KEY = 'maria.sidebarCollapsed';
 
 function Logo() {
@@ -58,24 +62,25 @@ function Logo() {
   );
 }
 
+/** Agents triés : les plus sollicités d'abord, puis par ordre alphabétique. */
+export function sortAgents(agents: AgentInfo[], load: Record<string, number>): AgentInfo[] {
+  return [...agents].sort((a, b) => (load[b.name] ?? 0) - (load[a.name] ?? 0) || a.name.localeCompare(b.name));
+}
+
 interface Props {
   page: Page;
   onNavigate: (page: Page) => void;
   agents: AgentInfo[];
   /** Nombre de missions récentes où chaque agent a été mentionné (@agent). */
   agentLoad: Record<string, number>;
-  dark: boolean;
-  onToggleDark: () => void;
   email: string;
   notificationCount: number;
   onSignOut: () => void;
 }
 
-/** Barre latérale : navigation principale, agents disponibles et déconnexion. */
-export function Sidebar({ page, onNavigate, agents, agentLoad, dark, onToggleDark, email, notificationCount, onSignOut }: Props) {
+/** Barre latérale : navigation principale, agents les plus sollicités et déconnexion. */
+export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificationCount, onSignOut }: Props) {
   const [collapsed, setCollapsed] = useState(false);
-  const [query, setQuery] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
 
   // Préférence mémorisée dans le navigateur ; sans stockage, la barre reste dépliée.
   useEffect(() => {
@@ -97,35 +102,14 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, dark, onToggleDar
     });
   }
 
-  // ⌘K / Ctrl+K : focus sur la recherche.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCollapsed(false);
-        requestAnimationFrame(() => searchRef.current?.focus());
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  const q = query.trim().toLowerCase();
-  const sections = useMemo(
-    () =>
-      SECTIONS.map((s) => ({ ...s, items: s.items.filter((i) => !q || i.label.toLowerCase().includes(q)) })).filter(
-        (s) => s.items.length > 0,
-      ),
-    [q],
-  );
-  // Les agents les plus sollicités d'abord, puis par ordre alphabétique.
-  const visibleAgents = useMemo(
-    () =>
-      agents
-        .filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q))
-        .sort((a, b) => (agentLoad[b.name] ?? 0) - (agentLoad[a.name] ?? 0) || a.name.localeCompare(b.name)),
-    [agents, agentLoad, q],
-  );
+  const sorted = useMemo(() => sortAgents(agents, agentLoad), [agents, agentLoad]);
+  const shown = sorted.slice(0, SIDEBAR_AGENTS);
+  // L'agent ouvert reste visible même s'il n'est pas dans les premiers.
+  if (page.kind === 'agent' && !shown.some((a) => a.name === page.name)) {
+    const current = sorted.find((a) => a.name === page.name);
+    if (current) shown.push(current);
+  }
+  const more = sorted.length - shown.length;
 
   const isActive = (p: Page) => p.kind === page.kind && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
   const initial = (email[0] ?? '?').toUpperCase();
@@ -143,20 +127,7 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, dark, onToggleDar
       </div>
 
       <div className="sb-scroll">
-        {collapsed ? (
-          <button className="sb-item" onClick={toggle} title="Rechercher (⌘K)">
-            <Search size={18} strokeWidth={1.75} />
-          </button>
-        ) : (
-          <label className="sb-search">
-            <Search size={16} strokeWidth={1.75} />
-            <input ref={searchRef} placeholder="Search..." value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQuery('')} />
-            <span className="sb-kbd">⌘</span>
-            <span className="sb-kbd">K</span>
-          </label>
-        )}
-
-        {sections.map((section) => (
+        {SECTIONS.map((section) => (
           <div key={section.title ?? 'main'} className="sb-section">
             {section.title && <div className="sb-section-title sb-label">{section.title}</div>}
             {section.items.map(({ kind, label, icon: Icon }) => (
@@ -175,51 +146,53 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, dark, onToggleDar
           </div>
         ))}
 
-        {(visibleAgents.length > 0 || !q) && (
-          <div className="sb-section sb-team">
-            <div className="sb-team-head">
-              <span className="sb-label">Agents</span>
-              <button
-                className={`sb-add ${page.kind === 'new-agent' ? 'active' : ''}`}
-                onClick={() => onNavigate({ kind: 'new-agent' })}
-                title="Ajouter un agent"
-                aria-label="Ajouter un agent"
-              >
-                <Plus size={18} strokeWidth={1.75} />
-              </button>
-            </div>
-            {agents.length === 0 && <p className="sb-empty sb-label">Aucun agent : lance le worker.</p>}
-            {visibleAgents.map((agent) => {
-              const target: Page = { kind: 'agent', name: agent.name };
-              const count = agentLoad[agent.name] ?? 0;
-              const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
-              return (
-                <button
-                  key={agent.name}
-                  className={`sb-member ${isActive(target) ? 'active' : ''}`}
-                  onClick={() => onNavigate(target)}
-                  title={agent.description ? `@${mentionName(agent.name)} — ${agent.description}` : `@${mentionName(agent.name)}`}
-                >
-                  <AgentAvatar name={agent.name} size={collapsed ? 30 : 26} />
-                  <span className="sb-label sb-member-name">{agent.name}</span>
-                  <span className="sb-label sb-member-load">
-                    <LoadBars level={level} title={count === 0 ? 'Pas encore sollicité' : `Sollicité dans ${count} mission(s) récente(s)`} />
-                  </span>
-                </button>
-              );
-            })}
+        <div className="sb-section sb-team">
+          <div className="sb-team-head">
+            <span className="sb-label">Agents</span>
+            <button
+              className={`sb-add ${page.kind === 'new-agent' ? 'active' : ''}`}
+              onClick={() => onNavigate({ kind: 'new-agent' })}
+              title="Ajouter un agent"
+              aria-label="Ajouter un agent"
+            >
+              <Plus size={18} strokeWidth={1.75} />
+            </button>
           </div>
-        )}
+          {agents.length === 0 && <p className="sb-empty sb-label">Aucun agent : lance le worker.</p>}
+          {shown.map((agent) => {
+            const target: Page = { kind: 'agent', name: agent.name };
+            const count = agentLoad[agent.name] ?? 0;
+            return (
+              <button
+                key={agent.name}
+                className={`sb-member ${isActive(target) ? 'active' : ''}`}
+                onClick={() => onNavigate(target)}
+                title={agent.description ? `@${mentionName(agent.name)} — ${agent.description}` : `@${mentionName(agent.name)}`}
+              >
+                <AgentAvatar name={agent.name} size={collapsed ? 30 : 26} />
+                <span className="sb-label sb-member-name">{agent.name}</span>
+                <span className="sb-label sb-member-load">
+                  <LoadBars level={loadLevel(count)} title={loadTitle(count)} />
+                </span>
+              </button>
+            );
+          })}
+          {more > 0 && (
+            <button
+              className={`sb-more ${page.kind === 'agents' ? 'active' : ''}`}
+              onClick={() => onNavigate({ kind: 'agents' })}
+              title={`Voir les ${agents.length} agents`}
+            >
+              <span className="sb-more-icon" aria-hidden="true">
+                <MoreHorizontal size={16} strokeWidth={2} />
+              </span>
+              <span className="sb-label">and {more} more…</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="sb-foot">
-        <button className="sb-theme" onClick={onToggleDark} role="switch" aria-checked={dark} title="Mode sombre">
-          <Moon size={18} strokeWidth={1.75} />
-          <span className="sb-label">Mode sombre</span>
-          <span className={`sb-switch sb-label ${dark ? 'on' : ''}`} aria-hidden="true">
-            <span />
-          </span>
-        </button>
         <div className="sb-user">
           <span className="sb-avatar" aria-hidden="true">
             {initial}

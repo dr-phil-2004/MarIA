@@ -137,3 +137,12 @@ export function LoadBars({ level, title }: { level: number; title: string }) {
     </span>
   );
 }
+
+/** Niveau de charge (0 à 4) d'après le nombre de missions récentes qui mentionnent l'agent. */
+export function loadLevel(count: number): number {
+  return count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
+}
+
+export function loadTitle(count: number): string {
+  return count === 0 ? 'Pas encore sollicité' : `Sollicité dans ${count} mission(s) récente(s)`;
+}

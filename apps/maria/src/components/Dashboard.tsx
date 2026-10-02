@@ -6,12 +6,14 @@ import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
+import { AgentLibrary } from './AgentLibrary';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionList } from './MissionList';
 import { MissionView } from './MissionView';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
+import { TopBar } from './TopBar';
 
 const WORKSPACE_REFRESH_MS = 30_000;
 
@@ -139,17 +141,21 @@ export function Dashboard({ email }: { email: string }) {
         onNavigate={navigate}
         agents={agents}
         agentLoad={agentLoad}
-        dark={theme === 'dark'}
-        onToggleDark={toggleTheme}
         email={email}
         notificationCount={pendingCount}
         onSignOut={() => getSupabase().auth.signOut()}
       />
       <PermissionPrompt missions={missions} onCountChange={setPendingCount} />
       <main className="main">
-        <header className="page-head">
-          <h1>{title}</h1>
-        </header>
+        <TopBar
+          title={title}
+          agents={agents}
+          missions={missions}
+          dark={theme === 'dark'}
+          onToggleDark={toggleTheme}
+          onNavigate={navigate}
+          onOpenMission={openMission}
+        />
         {error && <p className="error banner">{error}</p>}
 
         {page.kind === 'overview' && (
@@ -169,6 +175,8 @@ export function Dashboard({ email }: { email: string }) {
         )}
 
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
+
+        {page.kind === 'agents' && <AgentLibrary agents={agents} agentLoad={agentLoad} onNavigate={navigate} />}
 
         {page.kind === 'agent' && (
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
