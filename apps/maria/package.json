@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "worker": "tsx worker/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "service": "bash scripts/worker-service.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
