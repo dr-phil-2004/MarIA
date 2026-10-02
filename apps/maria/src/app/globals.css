@@ -164,3 +164,8 @@ button.danger { background: var(--err); }
 .agent-last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ruflo { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
 .ruflo h3 { margin: 0; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+
+.check { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; color: var(--muted); cursor: pointer; }
+.check input { width: auto; margin-top: 2px; }
+.branch { display: grid; gap: 8px; }
+.branch code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

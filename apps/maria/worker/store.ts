@@ -54,11 +54,42 @@ export class Store {
     return data.length;
   }
 
-  async claimNext(workspaces: string[]): Promise<Mission | null> {
-    const { data, error } = await this.db.rpc('claim_next_mission', { p_workspaces: workspaces });
+  /** Réserve la prochaine mission : « sur place » pour les dossiers libres, en worktree pour ceux qui ont de la capacité. */
+  async claimNext(inplace: string[], worktree: string[]): Promise<Mission | null> {
+    const { data, error } = await this.db.rpc('claim_next_mission', { p_inplace: inplace, p_worktree: worktree });
     if (error) throw new Error(`claimNext: ${error.message}`);
     const rows = data as Mission[] | null;
     return rows?.[0] ?? null;
+  }
+
+  /** Missions dont l'utilisateur a demandé la fusion ou l'abandon de la branche. */
+  async pendingWorktreeActions(workspaces: string[]): Promise<Mission[]> {
+    const { data, error } = await this.db
+      .from('missions')
+      .select('*')
+      .in('workspace', workspaces)
+      .eq('worktree_state', 'active')
+      .not('worktree_action', 'is', null)
+      .order('created_at');
+    if (error) throw new Error(`pendingWorktreeActions: ${error.message}`);
+    return data as Mission[];
+  }
+
+  /** Une mission tourne-t-elle encore dans ce worktree ? */
+  async worktreeBusy(worktreePath: string): Promise<boolean> {
+    const { count, error } = await this.db
+      .from('missions')
+      .select('id', { count: 'exact', head: true })
+      .eq('worktree_path', worktreePath)
+      .in('status', ['queued', 'running', 'cancel_requested']);
+    if (error) throw new Error(`worktreeBusy: ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
+  /** Met à jour toutes les missions qui partagent un worktree (une mission et ses suites). */
+  async updateWorktree(worktreePath: string, patch: Partial<Mission>): Promise<void> {
+    const { error } = await this.db.from('missions').update(patch).eq('worktree_path', worktreePath);
+    if (error) throw new Error(`updateWorktree: ${error.message}`);
   }
 
   async getMission(id: string): Promise<Mission | null> {

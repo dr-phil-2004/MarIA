@@ -18,8 +18,27 @@ interface Props {
 export function MissionForm({ workspaces, onCreated }: Props) {
   const [prompt, setPrompt] = useState('');
   const [workspace, setWorkspace] = useState('');
+  const [useWorktree, setUseWorktree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Préférence mémorisée dans le navigateur (simple confort, sans conséquence si le stockage est indisponible).
+  useEffect(() => {
+    try {
+      setUseWorktree(localStorage.getItem('maria.useWorktree') === '1');
+    } catch {
+      /* stockage indisponible */
+    }
+  }, []);
+
+  function toggleWorktree(value: boolean) {
+    setUseWorktree(value);
+    try {
+      localStorage.setItem('maria.useWorktree', value ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+  }
 
   useEffect(() => {
     if (!workspace && workspaces.length > 0) setWorkspace(workspaces[0].name);
@@ -34,7 +53,7 @@ export function MissionForm({ workspaces, onCreated }: Props) {
     setError(null);
     const { data, error: err } = await getSupabase()
       .from('missions')
-      .insert({ prompt: prompt.trim(), workspace })
+      .insert({ prompt: prompt.trim(), workspace, use_worktree: useWorktree })
       .select()
       .single();
     setBusy(false);
@@ -70,6 +89,10 @@ export function MissionForm({ workspaces, onCreated }: Props) {
           {busy ? '…' : 'Lancer'}
         </button>
       </div>
+      <label className="check small">
+        <input type="checkbox" checked={useWorktree} onChange={(e) => toggleWorktree(e.target.checked)} />
+        Branche isolée (worktree) : la mission travaille sur sa propre branche, en parallèle des autres
+      </label>
       {current && !isOnline(current) && (
         <p className="muted small">Worker hors ligne : la mission attendra son redémarrage.</p>
       )}

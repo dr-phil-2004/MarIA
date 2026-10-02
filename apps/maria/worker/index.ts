@@ -1,8 +1,10 @@
 // Worker MarIA : récupère les missions en attente dans Supabase et les exécute avec Claude Code.
 // Lancement : npm run worker (depuis apps/maria, avec .env.local rempli).
+import { runWorktreeAction } from './actions';
 import { loadConfig } from './config';
 import { runMission } from './runner';
 import { Store } from './store';
+import type { Mission } from '../src/lib/types';
 
 const HEARTBEAT_MS = 30_000;
 
@@ -21,31 +23,57 @@ async function main(): Promise<void> {
   console.log(`[maria] worker prêt — dossiers : ${names.map((n) => `${n} → ${cfg.workspaces[n]}`).join(', ')}`);
   console.log(`[maria] permissions : mode ${cfg.permissionMode}, outils autorisés : ${cfg.allowedTools.join(', ') || '(aucun)'}`);
   console.log(`[maria] autres actions : ${cfg.interactivePermissions ? `demandées dans MarIA (délai ${Math.round(cfg.permissionTimeoutMs / 1000)} s)` : 'refusées automatiquement'}`);
+  console.log(`[maria] branches isolées : jusqu'à ${cfg.maxParallel} en parallèle par dossier, dans ${cfg.worktreeRoot}`);
 
-  // Une mission à la fois par dossier : deux agents dans le même dossier se marcheraient dessus.
-  const running = new Map<string, Promise<void>>();
+  // Dans le dossier principal : une seule mission « sur place » (ou fusion) à la fois, sinon elles se marcheraient dessus.
+  // Les missions en worktree ont chacune leur copie : jusqu'à maxParallel en même temps par dossier.
+  const mainBusy = new Set<string>();
+  const worktreeCount = new Map<string, number>();
+  const running = new Set<Promise<void>>();
   const shutdown = new AbortController();
   let polling = false;
+
+  const track = (task: Promise<void>, release: () => void) => {
+    const p = task.finally(() => {
+      release();
+      running.delete(p);
+    });
+    running.add(p);
+  };
+
+  const startMission = (mission: Mission) => {
+    console.log(`[maria] mission ${mission.id} → ${mission.workspace}${mission.use_worktree ? ' (branche isolée)' : ''}`);
+    if (mission.use_worktree) worktreeCount.set(mission.workspace, (worktreeCount.get(mission.workspace) ?? 0) + 1);
+    else mainBusy.add(mission.workspace);
+    const task = runMission(mission, cfg, store, shutdown.signal).catch(async (err: Error) => {
+      console.error(`[maria] mission ${mission.id} : ${err.message}`);
+      await store
+        .update(mission.id, { status: 'failed', error: err.message, finished_at: new Date().toISOString() })
+        .catch(() => undefined);
+    });
+    track(task, () => {
+      if (mission.use_worktree) worktreeCount.set(mission.workspace, (worktreeCount.get(mission.workspace) ?? 1) - 1);
+      else mainBusy.delete(mission.workspace);
+    });
+  };
 
   const poll = async () => {
     if (polling || shutdown.signal.aborted) return;
     polling = true;
     try {
+      // Fusions et abandons demandés : ils touchent le dossier principal, donc exclusifs avec les missions sur place.
+      for (const mission of await store.pendingWorktreeActions(names.filter((n) => !mainBusy.has(n)))) {
+        if (mainBusy.has(mission.workspace)) continue;
+        mainBusy.add(mission.workspace);
+        track(runWorktreeAction(mission, cfg.workspaces[mission.workspace], store), () => mainBusy.delete(mission.workspace));
+      }
       for (;;) {
-        const idle = names.filter((n) => !running.has(n));
-        if (idle.length === 0) break;
-        const mission = await store.claimNext(idle);
+        const inplace = names.filter((n) => !mainBusy.has(n));
+        const worktree = names.filter((n) => (worktreeCount.get(n) ?? 0) < cfg.maxParallel);
+        if (inplace.length === 0 && worktree.length === 0) break;
+        const mission = await store.claimNext(inplace, worktree);
         if (!mission) break;
-        console.log(`[maria] mission ${mission.id} → ${mission.workspace}`);
-        const run = runMission(mission, cfg, store, shutdown.signal)
-          .catch(async (err: Error) => {
-            console.error(`[maria] mission ${mission.id} : ${err.message}`);
-            await store
-              .update(mission.id, { status: 'failed', error: err.message, finished_at: new Date().toISOString() })
-              .catch(() => undefined);
-          })
-          .finally(() => running.delete(mission.workspace));
-        running.set(mission.workspace, run);
+        startMission(mission);
       }
     } catch (err) {
       console.error(`[maria] ${(err as Error).message}`);

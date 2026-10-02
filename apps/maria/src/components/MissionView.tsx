@@ -6,6 +6,7 @@ import { buildFeed, type FeedItem } from '@/lib/feed';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import { FINISHED_STATUSES, type Mission, type MissionEvent } from '@/lib/types';
 import { AgentsPanel } from './AgentsPanel';
+import { BranchPanel } from './BranchPanel';
 import { STATUS_LABEL } from './MissionList';
 
 interface Props {
@@ -93,6 +94,7 @@ export function MissionView({ mission, onFollowUp }: Props) {
         </div>
 
         <div className="side-col">
+          <BranchPanel mission={mission} finished={finished} />
           <AgentsPanel summary={agents} rufloAgents={mission.ruflo_agents ?? null} finished={finished} />
           <div className="files card">
           <h2>Fichiers modifiés</h2>
@@ -149,7 +151,7 @@ function FollowUpForm({ parent, onCreated }: { parent: Mission; onCreated: (m: M
     setBusy(true);
     const { data, error: err } = await getSupabase()
       .from('missions')
-      .insert({ prompt: prompt.trim(), workspace: parent.workspace, parent_id: parent.id })
+      .insert({ prompt: prompt.trim(), workspace: parent.workspace, parent_id: parent.id, use_worktree: parent.use_worktree })
       .select()
       .single();
     setBusy(false);

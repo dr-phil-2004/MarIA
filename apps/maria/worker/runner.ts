@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
@@ -7,13 +8,14 @@ import { diffSnapshots, fileFromToolUse, snapshotDirty } from './files';
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
+import { commitWorktree, createWorktree, isGitRepo, worktreeCwd, type WorktreeInfo } from './worktree';
 
 const STATUS_POLL_MS = 2000;
 const KILL_GRACE_MS = 5000;
 const STDERR_TAIL = 4000;
 
 /** Contexte ajouté au prompt système : l'agent tourne sans terminal, piloté depuis MarIA. */
-function headlessNote(cwd: string, interactive: boolean): string {
+function headlessNote(cwd: string, interactive: boolean, branch: string | null): string {
   return [
     interactive
       ? 'Tu es exécuté par MarIA sans terminal : toute action non pré-autorisée est soumise à l’utilisateur dans l’interface, qui peut l’autoriser ou la refuser.'
@@ -22,6 +24,11 @@ function headlessNote(cwd: string, interactive: boolean): string {
     'Écris les commandes sous leur forme la plus simple, sans option de changement de dossier (pas de `git -C`, `npm --prefix`, chemins absolus vers le dossier de travail) : par exemple `git status`, `npm test`.',
     "Si une commande est refusée, ne réessaie pas de variantes : continue avec ce que tu peux faire et liste en fin de réponse les commandes à autoriser.",
     "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
+    ...(branch
+      ? [
+          `Tu travailles dans un worktree git isolé, sur la branche dédiée ${branch}. Ne change pas de branche, ne fais ni git push ni git commit : MarIA commitera tes modifications à la fin, puis l'utilisateur décidera de fusionner ou non.`,
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -38,10 +45,10 @@ function permissionMcpConfig(cfg: WorkerConfig, missionId: string): string {
   });
 }
 
-function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSessionId: string | null): string[] {
+function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSessionId: string | null, branch: string | null): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
-  args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions));
+  args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions, branch));
   if (cfg.interactivePermissions) {
     args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
   }
@@ -51,7 +58,13 @@ function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSess
   return args;
 }
 
-async function resolveResume(store: Store, mission: Mission, sink: EventSink): Promise<string | null> {
+async function resolveResume(
+  store: Store,
+  mission: Mission,
+  sink: EventSink,
+  cfg: WorkerConfig,
+  cwd: string,
+): Promise<string | null> {
   if (!mission.parent_id) return null;
   const parent = await store.getMission(mission.parent_id);
   if (!parent?.session_id) {
@@ -62,7 +75,60 @@ async function resolveResume(store: Store, mission: Mission, sink: EventSink): P
     sink.info('La mission parente est dans un autre dossier : reprise impossible.', 'warn');
     return null;
   }
+  // Claude Code range ses sessions par dossier : la reprise n'est possible que dans le même dossier.
+  const workspaceDir = cfg.workspaces[mission.workspace];
+  const parentCwd = parent.worktree_path ? await worktreeCwd(workspaceDir, parent.worktree_path).catch(() => null) : workspaceDir;
+  if (parentCwd !== cwd) {
+    sink.info('La mission parente a tourné dans un autre dossier (branche fusionnée ou abandonnée) : nouvelle conversation.', 'warn');
+    return null;
+  }
   return parent.session_id;
+}
+
+/** Choisit le dossier de travail : le workspace, ou un worktree dédié (nouveau, ou celui de la mission parente). */
+async function prepareWorkdir(
+  mission: Mission,
+  cfg: WorkerConfig,
+  store: Store,
+  sink: EventSink,
+): Promise<{ cwd: string; worktree: WorktreeInfo | null }> {
+  const workspaceDir = cfg.workspaces[mission.workspace];
+  if (!mission.use_worktree) return { cwd: workspaceDir, worktree: null };
+
+  const parent = mission.parent_id ? await store.getMission(mission.parent_id) : null;
+  if (parent?.worktree_state === 'active' && parent.worktree_path && parent.branch && existsSync(parent.worktree_path)) {
+    const worktree: WorktreeInfo = {
+      path: parent.worktree_path,
+      cwd: await worktreeCwd(workspaceDir, parent.worktree_path),
+      branch: parent.branch,
+      baseCommit: parent.base_commit ?? '',
+    };
+    await store.update(mission.id, {
+      branch: worktree.branch,
+      worktree_path: worktree.path,
+      base_commit: parent.base_commit,
+      worktree_state: 'active',
+    });
+    sink.info(`Suite dans la branche ${worktree.branch}`);
+    return { cwd: worktree.cwd, worktree };
+  }
+
+  if (!(await isGitRepo(workspaceDir))) {
+    throw new Error(`« ${mission.workspace} » n’est pas un dépôt git : impossible d’isoler la mission dans une branche (lance « git init » dans le dossier, ou décoche « Branche isolée »).`);
+  }
+  const worktree = await createWorktree(workspaceDir, mission.workspace, mission.id, mission.prompt, {
+    root: cfg.worktreeRoot,
+    links: cfg.worktreeLinks,
+    copies: cfg.worktreeCopies,
+  });
+  await store.update(mission.id, {
+    branch: worktree.branch,
+    worktree_path: worktree.path,
+    base_commit: worktree.baseCommit,
+    worktree_state: 'active',
+  });
+  sink.info(`Branche isolée ${worktree.branch} créée (${worktree.path})`);
+  return { cwd: worktree.cwd, worktree };
 }
 
 /**
@@ -75,11 +141,19 @@ export async function runMission(
   store: Store,
   signal: AbortSignal,
 ): Promise<void> {
-  const cwd = cfg.workspaces[mission.workspace];
   const sink = new EventSink(store, mission.id);
   sink.info(`Mission démarrée dans « ${mission.workspace} »`);
 
-  const resumeSessionId = await resolveResume(store, mission, sink);
+  let prepared: { cwd: string; worktree: WorktreeInfo | null };
+  try {
+    prepared = await prepareWorkdir(mission, cfg, store, sink);
+  } catch (err) {
+    sink.info((err as Error).message, 'error');
+    await sink.flush();
+    throw err;
+  }
+  const { cwd, worktree } = prepared;
+  const resumeSessionId = await resolveResume(store, mission, sink, cfg, cwd);
   const before = await snapshotDirty(cwd).catch(() => null);
   const toolFiles = new Set<string>();
   let sessionId: string | null = null;
@@ -88,7 +162,7 @@ export async function runMission(
   let cancelled = false;
   let usedRuflo = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null), {
     cwd,
     // Laisse au serveur de permissions le temps d'attendre la décision de l'utilisateur.
     env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000) },
@@ -195,6 +269,16 @@ export async function runMission(
   } else {
     status = 'failed';
     error = (result?.is_error && result.result) || stderrTail.trim() || `claude a quitté avec le code ${exit.code}`;
+  }
+
+  if (worktree && !exit.error) {
+    const title = mission.prompt.split('\n')[0].slice(0, 72);
+    try {
+      const sha = await commitWorktree(cwd, `MarIA: ${title}\n\nMission ${mission.id}`, [...cfg.worktreeLinks, ...cfg.worktreeCopies]);
+      sink.info(sha ? `Modifications commitées sur ${worktree.branch} (${sha.slice(0, 7)}).` : `Aucune modification à commiter sur ${worktree.branch}.`);
+    } catch (err) {
+      sink.info(`Commit sur ${worktree.branch} impossible : ${(err as Error).message}`, 'error');
+    }
   }
 
   await store.expirePermissions([mission.id]).catch((err: Error) => console.error(`[maria] ${err.message}`));

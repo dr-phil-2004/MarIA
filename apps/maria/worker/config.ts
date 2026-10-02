@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'dontAsk', 'plan'] as const;
@@ -20,6 +21,14 @@ export interface WorkerConfig {
   permissionTimeoutMs: number;
   /** Commande Ruflo (ex. `npx -y ruflo@latest`) pour lire le registre d'agents ; null = désactivé. */
   rufloCmd: string[] | null;
+  /** Dossier où créer les worktrees des missions isolées. */
+  worktreeRoot: string;
+  /** Éléments non versionnés reliés (symlink) dans chaque worktree. */
+  worktreeLinks: string[];
+  /** Éléments non versionnés copiés dans chaque worktree. */
+  worktreeCopies: string[];
+  /** Nombre maximal de missions en worktree simultanées par dossier. */
+  maxParallel: number;
 }
 
 function required(name: string): string {
@@ -83,6 +92,10 @@ export function loadConfig(): WorkerConfig {
     throw new Error('MARIA_PERMISSION_TIMEOUT_MS doit être >= 10000');
   }
 
+  const maxParallel = Number(process.env.MARIA_MAX_PARALLEL ?? 3);
+  if (!Number.isInteger(maxParallel) || maxParallel < 1) throw new Error('MARIA_MAX_PARALLEL doit être un entier >= 1');
+  const worktreeRoot = path.resolve(process.env.MARIA_WORKTREE_DIR?.trim() || path.join(os.homedir(), '.maria', 'worktrees'));
+
   return {
     supabaseUrl: required('SUPABASE_URL'),
     serviceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
@@ -96,5 +109,9 @@ export function loadConfig(): WorkerConfig {
     interactivePermissions: process.env.MARIA_INTERACTIVE_PERMISSIONS?.trim() !== '0',
     permissionTimeoutMs,
     rufloCmd: parseCommand(process.env.MARIA_RUFLO_CMD ?? 'npx -y ruflo@latest'),
+    worktreeRoot,
+    worktreeLinks: list(process.env.MARIA_WORKTREE_LINKS ?? '.claude-flow,.swarm,node_modules'),
+    worktreeCopies: list(process.env.MARIA_WORKTREE_COPY ?? '.mcp.json,.claude,CLAUDE.md'),
+    maxParallel,
   };
 }

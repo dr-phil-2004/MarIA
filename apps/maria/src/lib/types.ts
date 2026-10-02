@@ -20,6 +20,13 @@ export interface Mission {
   files_changed: string[];
   cost_usd: number | null;
   ruflo_agents: RufloAgent[] | null;
+  use_worktree: boolean;
+  branch: string | null;
+  worktree_path: string | null;
+  base_commit: string | null;
+  worktree_state: 'active' | 'merged' | 'discarded' | null;
+  worktree_action: 'merge' | 'discard' | null;
+  worktree_error: string | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;

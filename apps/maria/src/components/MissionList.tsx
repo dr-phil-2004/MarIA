@@ -27,7 +27,8 @@ export function MissionList({ missions, selectedId, onSelect }: Props) {
             <span className={`badge ${m.status}`}>{STATUS_LABEL[m.status]}</span>
             <span className="mission-title">{m.prompt}</span>
             <span className="muted small">
-              {m.workspace} · {new Date(m.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+              {m.workspace}
+              {m.branch ? ` · ⑂ ${m.worktree_state === 'active' ? 'branche à valider' : m.worktree_state === 'merged' ? 'fusionnée' : 'abandonnée'}` : ''} · {new Date(m.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
             </span>
           </button>
         </li>
