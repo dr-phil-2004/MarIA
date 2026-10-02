@@ -9,7 +9,7 @@ import { QuestionForm } from './QuestionForm';
 const BASE_TITLE = 'MarIA';
 
 /** Fenêtre « Autoriser / Refuser » pour les actions que l'agent n'est pas pré-autorisé à faire. */
-export function PermissionPrompt({ missions }: { missions: Mission[] }) {
+export function PermissionPrompt({ missions, onCountChange }: { missions: Mission[]; onCountChange?: (count: number) => void }) {
   const [pending, setPending] = useState<PermissionRequest[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +48,8 @@ export function PermissionPrompt({ missions }: { missions: Mission[] }) {
   // Signale une demande en attente dans l'onglet, même quand MarIA n'est pas au premier plan.
   useEffect(() => {
     document.title = pending.length > 0 ? `(${pending.length}) Action requise — ${BASE_TITLE}` : BASE_TITLE;
-  }, [pending.length]);
+    onCountChange?.(pending.length);
+  }, [pending.length, onCountChange]);
 
   const current = pending[0];
   if (!current) return null;

@@ -8,10 +8,13 @@
     "build": "next build",
     "start": "next start",
     "worker": "tsx worker/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "service": "bash scripts/worker-service.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
+    "geist": "^1.7.2",
+    "lucide-react": "^1.50.0",
     "next": "16.3.8",
     "react": "19.3.0",
     "react-dom": "19.3.0"
