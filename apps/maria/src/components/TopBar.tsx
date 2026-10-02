@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Moon, Search, Sun } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 import type { Mission } from '@/lib/types';
@@ -16,6 +16,8 @@ type Result =
 
 interface Props {
   title: string;
+  /** Bouton d'action propre à la page (ex. « Nouvelle mission »), affiché à gauche de la recherche. */
+  action?: ReactNode;
   agents: AgentInfo[];
   missions: Mission[];
   dark: boolean;
@@ -25,7 +27,7 @@ interface Props {
 }
 
 /** En-tête des pages : titre à gauche ; recherche (pages, agents, missions) et bascule clair/sombre à droite. */
-export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate, onOpenMission }: Props) {
+export function TopBar({ title, action, agents, missions, dark, onToggleDark, onNavigate, onOpenMission }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -86,6 +88,7 @@ export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate
     <header className="topbar">
       <h1>{title}</h1>
       <div className="topbar-actions">
+        {action}
         <div className="tb-search-wrap">
           <label className="tb-search">
             <Search size={16} strokeWidth={1.75} />

@@ -14,9 +14,10 @@ export type Page =
   | { kind: 'connectors' }
   | { kind: 'agents' }
   | { kind: 'new-agent' }
-  | { kind: 'agent'; name: string };
+  | { kind: 'agent'; name: string }
+  | { kind: 'mission'; id: string };
 
-type StaticKind = Exclude<Page['kind'], 'agent'>;
+type StaticKind = Exclude<Page['kind'], 'agent' | 'mission'>;
 
 interface NavItem {
   kind: StaticKind;
@@ -111,7 +112,9 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificati
   }
   const more = sorted.length - shown.length;
 
-  const isActive = (p: Page) => p.kind === page.kind && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
+  // Une mission ouverte reste rattachée à Overview dans la navigation.
+  const current: Page['kind'] = page.kind === 'mission' ? 'overview' : page.kind;
+  const isActive = (p: Page) => p.kind === current && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
   const initial = (email[0] ?? '?').toUpperCase();
 
   return (
