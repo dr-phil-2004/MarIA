@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { parseMentions } from '../src/lib/mentions';
+import { mentionName, parseMentions } from '../src/lib/mentions';
 import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
 import { listAgents } from './agents';
 import type { WorkerConfig } from './config';
@@ -31,7 +31,7 @@ function headlessNote(cwd: string, interactive: boolean, branch: string | null, 
       : "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
     ...(chain.length > 0
       ? [
-          `Mission en chaîne : l'utilisateur a choisi les sous-agents ${chain.map((a) => `@${a}`).join(' → ')}, et seulement eux (les autres sont bloqués). Délègue chaque étape à l'agent correspondant avec l'outil Agent (subagent_type exact), dans cet ordre, un à la fois et en mode synchrone (sans run_in_background). Donne à chaque agent la consigne de la mission et le compte rendu utile des étapes précédentes (décisions, fichiers modifiés, points ouverts), puisqu'il ne voit rien d'autre. Ne fais pas toi-même le travail d'une étape ; si une étape échoue ou bloque, arrête la chaîne et explique pourquoi. À la fin, fais une synthèse courte de ce que chaque agent a fait.`,
+          `Mission en chaîne : l'utilisateur a choisi les sous-agents ${chain.map((a) => `« ${a} »`).join(' → ')}, et seulement eux (les autres sont bloqués). Délègue chaque étape à l'agent correspondant avec l'outil Agent (subagent_type exactement égal au nom entre guillemets), dans cet ordre, un à la fois et en mode synchrone (sans run_in_background). Donne à chaque agent la consigne de la mission et le compte rendu utile des étapes précédentes (décisions, fichiers modifiés, points ouverts), puisqu'il ne voit rien d'autre. Ne fais pas toi-même le travail d'une étape ; si une étape échoue ou bloque, arrête la chaîne et explique pourquoi. À la fin, fais une synthèse courte de ce que chaque agent a fait.`,
         ]
       : []),
     ...(branch
@@ -184,7 +184,7 @@ export async function runMission(
   const { cwd, worktree } = prepared;
   const { agents: chain, unknown } = parseMentions(mission.prompt, listAgents(cwd).map((a) => a.name));
   if (unknown.length > 0) sink.info(`Agent(s) inconnu(s) dans ce dossier, ignoré(s) : ${unknown.map((a) => `@${a}`).join(', ')}`, 'warn');
-  if (chain.length > 0) sink.info(`Chaîne d’agents : ${chain.map((a) => `@${a}`).join(' → ')} (les autres sous-agents sont bloqués)`);
+  if (chain.length > 0) sink.info(`Chaîne d’agents : ${chain.map((a) => `@${mentionName(a)}`).join(' → ')} (les autres sous-agents sont bloqués)`);
   const resumeSessionId = await resolveResume(store, mission, sink, cfg, cwd);
   const before = await snapshotDirty(cwd).catch(() => null);
   const toolFiles = new Set<string>();

@@ -1,9 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { mentionAt, parseMentions, type AgentInfo } from '@/lib/mentions';
-
-const MAX_SUGGESTIONS = 8;
+import { mentionAt, mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 
 interface Props {
   value: string;
@@ -22,10 +20,12 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
 
   const suggestions = useMemo(() => {
     if (!mention) return [];
+    // Tous les agents correspondants (le menu défile) : ceux qui commencent par la saisie d'abord.
     const q = mention.query.toLowerCase();
-    const starts = agents.filter((a) => a.name.toLowerCase().startsWith(q));
-    const contains = agents.filter((a) => !a.name.toLowerCase().startsWith(q) && a.name.toLowerCase().includes(q));
-    return [...starts, ...contains].slice(0, MAX_SUGGESTIONS);
+    const key = (a: AgentInfo) => mentionName(a.name).toLowerCase();
+    const starts = agents.filter((a) => key(a).startsWith(q));
+    const contains = agents.filter((a) => !key(a).startsWith(q) && (key(a).includes(q) || a.description.toLowerCase().includes(q)));
+    return [...starts, ...contains];
   }, [agents, mention]);
 
   const chain = useMemo(() => parseMentions(value, agents.map((a) => a.name)), [value, agents]);
@@ -39,7 +39,7 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
     const el = ref.current;
     if (!el || !mention) return;
     const caret = el.selectionStart;
-    const insert = `@${agent.name} `;
+    const insert = `@${mentionName(agent.name)} `;
     const next = value.slice(0, mention.start) + insert + value.slice(caret);
     onChange(next);
     setMention(null);
@@ -88,20 +88,21 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
         onBlur={() => setTimeout(() => setMention(null), 150)}
       />
       {suggestions.length > 0 && (
-        <ul className="mention-menu" role="listbox">
+        <ul className="mention-menu" role="listbox" aria-label={`${suggestions.length} agent(s)`}>
           {suggestions.map((agent, i) => (
             <li
               key={agent.name}
               role="option"
               aria-selected={i === active}
               className={i === active ? 'active' : ''}
+              ref={i === active ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
               onMouseDown={(e) => {
                 e.preventDefault();
                 pick(agent);
               }}
               onMouseEnter={() => setActive(i)}
             >
-              <strong>@{agent.name}</strong>
+              <strong>@{mentionName(agent.name)}</strong>
               {agent.description && <span className="muted"> — {agent.description}</span>}
             </li>
           ))}
@@ -109,7 +110,7 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
       )}
       {chain.agents.length > 0 && (
         <p className="chain small">
-          Chaîne : {chain.agents.map((a) => `@${a}`).join(' → ')}
+          Chaîne : {chain.agents.map((a) => `@${mentionName(a)}`).join(' → ')}
           <span className="muted"> — seuls ces agents seront utilisés, dans cet ordre</span>
         </p>
       )}

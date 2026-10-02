@@ -11,12 +11,12 @@ export interface HookInput {
 export function denyReason(input: HookInput, allowed: string[]): string | null {
   if (input.tool_name !== 'Agent' && input.tool_name !== 'Task') return null;
   const type = typeof input.tool_input?.subagent_type === 'string' ? input.tool_input.subagent_type : 'general-purpose';
-  const list = allowed.map((a) => `@${a}`).join(', ');
+  const list = allowed.map((a) => `« ${a} »`).join(', ');
   if (!allowed.includes(type)) {
     return `L'agent « ${type} » n'est pas autorisé pour cette mission : l'utilisateur n'a demandé que ${list}. Utilise uniquement ces agents (subagent_type exact), sans en lancer d'autres.`;
   }
   if (input.tool_input?.run_in_background === true) {
-    return `Lance @${type} en mode synchrone (sans run_in_background) : attends son résultat, puis transmets-le à l'étape suivante.`;
+    return `Lance « ${type} » en mode synchrone (sans run_in_background) : attends son résultat, puis transmets-le à l'étape suivante.`;
   }
   return null;
 }

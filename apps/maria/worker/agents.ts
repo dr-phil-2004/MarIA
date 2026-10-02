@@ -28,8 +28,8 @@ export function parseAgentFile(text: string): AgentInfo | null {
   if (!header) return null;
   const field = (key: string) => new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(header[1])?.[1];
   const name = unquote(field('name') ?? '');
-  // Seuls les noms sans espace peuvent être mentionnés avec « @ ».
-  if (!/^[A-Za-z0-9][\w-]*$/.test(name)) return null;
+  // Les espaces sont acceptés (« Benchmark Suite » se mentionne @Benchmark-Suite).
+  if (!/^[A-Za-z0-9][\w -]*$/.test(name)) return null;
   const raw = unquote(field('description') ?? '');
   const description = /^[|>]/.test(raw) ? '' : raw;
   return { name, description: description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION)}…` : description };

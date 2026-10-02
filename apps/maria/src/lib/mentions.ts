@@ -8,9 +8,14 @@ export interface AgentInfo {
 
 const MENTION = /(^|[\s(,;])@([A-Za-z0-9][\w-]*)/g;
 
-/** Agents mentionnés, dans l'ordre de première apparition ; les noms inconnus sont renvoyés à part. */
+/** Forme mentionnable d'un nom d'agent : « Benchmark Suite » s'écrit @Benchmark-Suite. */
+export function mentionName(name: string): string {
+  return name.trim().replace(/\s+/g, '-');
+}
+
+/** Agents mentionnés (noms réels), dans l'ordre de première apparition ; les noms inconnus sont renvoyés à part. */
 export function parseMentions(prompt: string, known: readonly string[]): { agents: string[]; unknown: string[] } {
-  const byLower = new Map(known.map((name) => [name.toLowerCase(), name]));
+  const byLower = new Map(known.map((name) => [mentionName(name).toLowerCase(), name]));
   const agents: string[] = [];
   const unknown: string[] = [];
   for (const match of prompt.matchAll(MENTION)) {
