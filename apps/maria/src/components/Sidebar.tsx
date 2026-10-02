@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { Bell, Bot, Brain, House, LogOut, PanelLeft, Plug, Search, Ticket, Users, type LucideProps } from 'lucide-react';
+import { Bell, Brain, House, LogOut, Moon, PanelLeft, Plug, Plus, Search, Ticket, Users, type LucideProps } from 'lucide-react';
+import { AgentAvatar, LoadBars } from './AgentAvatar';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 
 export type Page =
@@ -11,6 +12,7 @@ export type Page =
   | { kind: 'notifications' }
   | { kind: 'brains' }
   | { kind: 'connectors' }
+  | { kind: 'new-agent' }
   | { kind: 'agent'; name: string };
 
 type StaticKind = Exclude<Page['kind'], 'agent'>;
@@ -28,6 +30,7 @@ export const NAV_LABEL: Record<StaticKind, string> = {
   notifications: 'Notifications',
   brains: 'Brains',
   connectors: 'Connecteurs',
+  'new-agent': 'Nouvel agent',
 };
 
 const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
@@ -59,13 +62,17 @@ interface Props {
   page: Page;
   onNavigate: (page: Page) => void;
   agents: AgentInfo[];
+  /** Nombre de missions récentes où chaque agent a été mentionné (@agent). */
+  agentLoad: Record<string, number>;
+  dark: boolean;
+  onToggleDark: () => void;
   email: string;
   notificationCount: number;
   onSignOut: () => void;
 }
 
 /** Barre latérale : navigation principale, agents disponibles et déconnexion. */
-export function Sidebar({ page, onNavigate, agents, email, notificationCount, onSignOut }: Props) {
+export function Sidebar({ page, onNavigate, agents, agentLoad, dark, onToggleDark, email, notificationCount, onSignOut }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -111,9 +118,13 @@ export function Sidebar({ page, onNavigate, agents, email, notificationCount, on
       ),
     [q],
   );
+  // Les agents les plus sollicités d'abord, puis par ordre alphabétique.
   const visibleAgents = useMemo(
-    () => agents.filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)),
-    [agents, q],
+    () =>
+      agents
+        .filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q))
+        .sort((a, b) => (agentLoad[b.name] ?? 0) - (agentLoad[a.name] ?? 0) || a.name.localeCompare(b.name)),
+    [agents, agentLoad, q],
   );
 
   const isActive = (p: Page) => p.kind === page.kind && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
@@ -165,22 +176,35 @@ export function Sidebar({ page, onNavigate, agents, email, notificationCount, on
         ))}
 
         {(visibleAgents.length > 0 || !q) && (
-          <div className="sb-section">
-            <div className="sb-section-title sb-label">
-              Agents <span className="sb-section-count">{agents.length}</span>
+          <div className="sb-section sb-team">
+            <div className="sb-team-head">
+              <span className="sb-label">Agents</span>
+              <button
+                className={`sb-add ${page.kind === 'new-agent' ? 'active' : ''}`}
+                onClick={() => onNavigate({ kind: 'new-agent' })}
+                title="Ajouter un agent"
+                aria-label="Ajouter un agent"
+              >
+                <Plus size={18} strokeWidth={1.75} />
+              </button>
             </div>
             {agents.length === 0 && <p className="sb-empty sb-label">Aucun agent : lance le worker.</p>}
             {visibleAgents.map((agent) => {
               const target: Page = { kind: 'agent', name: agent.name };
+              const count = agentLoad[agent.name] ?? 0;
+              const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
               return (
                 <button
                   key={agent.name}
-                  className={`sb-item sb-agent ${isActive(target) ? 'active' : ''}`}
+                  className={`sb-member ${isActive(target) ? 'active' : ''}`}
                   onClick={() => onNavigate(target)}
                   title={agent.description ? `@${mentionName(agent.name)} — ${agent.description}` : `@${mentionName(agent.name)}`}
                 >
-                  <Bot size={18} strokeWidth={1.75} />
-                  <span className="sb-label">{agent.name}</span>
+                  <AgentAvatar name={agent.name} size={collapsed ? 30 : 26} />
+                  <span className="sb-label sb-member-name">{agent.name}</span>
+                  <span className="sb-label sb-member-load">
+                    <LoadBars level={level} title={count === 0 ? 'Pas encore sollicité' : `Sollicité dans ${count} mission(s) récente(s)`} />
+                  </span>
                 </button>
               );
             })}
@@ -189,6 +213,13 @@ export function Sidebar({ page, onNavigate, agents, email, notificationCount, on
       </div>
 
       <div className="sb-foot">
+        <button className="sb-theme" onClick={onToggleDark} role="switch" aria-checked={dark} title="Mode sombre">
+          <Moon size={18} strokeWidth={1.75} />
+          <span className="sb-label">Mode sombre</span>
+          <span className={`sb-switch sb-label ${dark ? 'on' : ''}`} aria-hidden="true">
+            <span />
+          </span>
+        </button>
         <div className="sb-user">
           <span className="sb-avatar" aria-hidden="true">
             {initial}
