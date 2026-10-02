@@ -1,4 +1,5 @@
 // Types partagés entre le front et le worker (miroir du schéma SQL).
+import type { AgentInfo } from './mentions';
 
 export type MissionStatus =
   | 'queued'
@@ -54,6 +55,8 @@ export interface MissionEvent {
 export interface Workspace {
   name: string;
   last_seen_at: string;
+  /** Agents disponibles dans le dossier (mentions « @agent »), publiés par le worker. */
+  agents: AgentInfo[] | null;
 }
 
 export const FINISHED_STATUSES: readonly MissionStatus[] = ['completed', 'failed', 'cancelled'];

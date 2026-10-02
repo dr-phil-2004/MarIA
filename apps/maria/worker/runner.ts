@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { parseMentions } from '../src/lib/mentions';
 import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
+import { listAgents } from './agents';
 import type { WorkerConfig } from './config';
 import { diffSnapshots, fileFromToolUse, snapshotDirty } from './files';
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
@@ -15,7 +17,7 @@ const KILL_GRACE_MS = 5000;
 const STDERR_TAIL = 4000;
 
 /** Contexte ajouté au prompt système : l'agent tourne sans terminal, piloté depuis MarIA. */
-function headlessNote(cwd: string, interactive: boolean, branch: string | null): string {
+function headlessNote(cwd: string, interactive: boolean, branch: string | null, chain: string[]): string {
   return [
     interactive
       ? 'Tu es exécuté par MarIA sans terminal : toute action non pré-autorisée est soumise à l’utilisateur dans l’interface, qui peut l’autoriser ou la refuser.'
@@ -27,6 +29,11 @@ function headlessNote(cwd: string, interactive: boolean, branch: string | null):
     interactive
       ? "Si tu as besoin d'une décision de l'utilisateur pour avancer, utilise l'outil AskUserQuestion : la question s'affiche dans MarIA et sa réponse te revient directement."
       : "Si tu as besoin d'une décision de l'utilisateur, termine ta réponse par une question claire : il pourra répondre via « Continuer ».",
+    ...(chain.length > 0
+      ? [
+          `Mission en chaîne : l'utilisateur a choisi les sous-agents ${chain.map((a) => `@${a}`).join(' → ')}, et seulement eux (les autres sont bloqués). Délègue chaque étape à l'agent correspondant avec l'outil Agent (subagent_type exact), dans cet ordre, un à la fois et en mode synchrone (sans run_in_background). Donne à chaque agent la consigne de la mission et le compte rendu utile des étapes précédentes (décisions, fichiers modifiés, points ouverts), puisqu'il ne voit rien d'autre. Ne fais pas toi-même le travail d'une étape ; si une étape échoue ou bloque, arrête la chaîne et explique pourquoi. À la fin, fais une synthèse courte de ce que chaque agent a fait.`,
+        ]
+      : []),
     ...(branch
       ? [
           `Tu travailles dans un worktree git isolé, sur la branche dédiée ${branch}. Ne change pas de branche, ne fais ni git push ni git commit : MarIA commitera tes modifications à la fin, puis l'utilisateur décidera de fusionner ou non.`,
@@ -48,10 +55,26 @@ function permissionMcpConfig(cfg: WorkerConfig, missionId: string): string {
   });
 }
 
-function buildArgs(cfg: WorkerConfig, cwd: string, missionId: string, resumeSessionId: string | null, branch: string | null): string[] {
+/** Hook PreToolUse (worker/agent-guard.ts) qui bloque les sous-agents non mentionnés dans une mission en chaîne. */
+function chainGuardSettings(): string {
+  const command = [process.execPath, path.join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(__dirname, 'agent-guard.ts')]
+    .map((part) => JSON.stringify(part))
+    .join(' ');
+  return JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Agent|Task', hooks: [{ type: 'command', command }] }] } });
+}
+
+function buildArgs(
+  cfg: WorkerConfig,
+  cwd: string,
+  missionId: string,
+  resumeSessionId: string | null,
+  branch: string | null,
+  chain: string[],
+): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
-  args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions, branch));
+  args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions, branch, chain));
+  if (chain.length > 0) args.push('--settings', chainGuardSettings());
   if (cfg.interactivePermissions) {
     args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
   }
@@ -159,6 +182,9 @@ export async function runMission(
     throw err;
   }
   const { cwd, worktree } = prepared;
+  const { agents: chain, unknown } = parseMentions(mission.prompt, listAgents(cwd).map((a) => a.name));
+  if (unknown.length > 0) sink.info(`Agent(s) inconnu(s) dans ce dossier, ignoré(s) : ${unknown.map((a) => `@${a}`).join(', ')}`, 'warn');
+  if (chain.length > 0) sink.info(`Chaîne d’agents : ${chain.map((a) => `@${a}`).join(' → ')} (les autres sous-agents sont bloqués)`);
   const resumeSessionId = await resolveResume(store, mission, sink, cfg, cwd);
   const before = await snapshotDirty(cwd).catch(() => null);
   const toolFiles = new Set<string>();
@@ -168,10 +194,10 @@ export async function runMission(
   let cancelled = false;
   let usedRuflo = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null, chain), {
     cwd,
     // Laisse au serveur de permissions le temps d'attendre la décision de l'utilisateur.
-    env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000) },
+    env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000), MARIA_CHAIN_AGENTS: chain.join(',') },
     stdio: ['pipe', 'pipe', 'pipe'],
     // Groupe de processus dédié pour pouvoir tuer aussi les commandes lancées par l'agent.
     detached: process.platform !== 'win32',

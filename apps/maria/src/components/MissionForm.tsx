@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
+import { AgentPrompt } from './AgentPrompt';
 
 const ONLINE_WINDOW_MS = 90_000;
 
@@ -46,9 +47,9 @@ export function MissionForm({ workspaces, onCreated }: Props) {
 
   const current = workspaces.find((w) => w.name === workspace);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim() || !workspace) return;
+  async function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (busy || !prompt.trim() || !workspace) return;
     setBusy(true);
     setError(null);
     const { data, error: err } = await getSupabase()
@@ -67,14 +68,13 @@ export function MissionForm({ workspaces, onCreated }: Props) {
 
   return (
     <form className="card mission-form" onSubmit={submit}>
-      <textarea
-        placeholder="Décris la mission… ex. « Ajoute des tests au module de paiement »"
+      <AgentPrompt
+        placeholder="Décris la mission… ex. « Ajoute des tests au module de paiement ». Tape @ pour choisir les agents de la chaîne."
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
-        }}
+        onChange={setPrompt}
+        agents={current?.agents ?? []}
         rows={4}
+        onSubmit={() => void submit()}
       />
       <div className="row">
         <select value={workspace} onChange={(e) => setWorkspace(e.target.value)} disabled={workspaces.length === 0}>

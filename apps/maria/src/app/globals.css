@@ -178,3 +178,13 @@ button.danger { background: var(--err); }
 .option { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .option input[type='radio'], .option input[type='checkbox'] { width: auto; flex: none; }
 .option .other { flex: 1; padding: 4px 8px; }
+
+.agent-prompt { position: relative; display: grid; gap: 4px; }
+.mention-menu {
+  position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px;
+  list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25); max-height: 280px; overflow-y: auto;
+}
+.mention-menu li { padding: 6px 8px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-menu li.active { background: var(--border); }
+.chain { margin: 0; color: var(--accent); }

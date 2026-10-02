@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { AgentInfo } from '../src/lib/mentions';
 import type { Mission, MissionStatus, StreamEvent } from '../src/lib/types';
 
 const MAX_STRING = 4000;
@@ -22,11 +23,14 @@ export class Store {
     this.db = createClient(url, serviceRoleKey, { auth: { persistSession: false }, db: { schema: 'maria' } });
   }
 
-  async registerWorkspaces(names: string[]): Promise<void> {
+  async registerWorkspaces(workspaces: Array<{ name: string; agents: AgentInfo[] }>): Promise<void> {
     const now = new Date().toISOString();
     const { error } = await this.db
       .from('workspaces')
-      .upsert(names.map((name) => ({ name, last_seen_at: now })));
+      .upsert(workspaces.map(({ name, agents }) => ({ name, agents, last_seen_at: now })));
+    if (error && /agents/.test(error.message)) {
+      throw new Error(`registerWorkspaces: ${error.message} — applique la migration supabase/migrations/0006_workspace_agents.sql`);
+    }
     if (error) throw new Error(`registerWorkspaces: ${error.message}`);
   }
 

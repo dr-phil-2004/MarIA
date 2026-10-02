@@ -1,6 +1,7 @@
 // Worker MarIA : récupère les missions en attente dans Supabase et les exécute avec Claude Code.
 // Lancement : npm run worker (depuis apps/maria, avec .env.local rempli).
 import { runWorktreeAction } from './actions';
+import { listAgents } from './agents';
 import { loadConfig } from './config';
 import { runMission } from './runner';
 import { Store } from './store';
@@ -17,7 +18,9 @@ async function main(): Promise<void> {
   const store = new Store(cfg.supabaseUrl, cfg.serviceRoleKey);
   const names = Object.keys(cfg.workspaces);
 
-  await store.registerWorkspaces(names);
+  // Relu à chaque battement : un agent ajouté dans .claude/agents apparaît dans MarIA sans redémarrer le worker.
+  const register = () => store.registerWorkspaces(names.map((name) => ({ name, agents: listAgents(cfg.workspaces[name]) })));
+  await register();
   const orphans = await store.failOrphans(names);
   if (orphans > 0) console.log(`[maria] ${orphans} mission(s) orpheline(s) marquée(s) en échec`);
   console.log(`[maria] worker prêt — dossiers : ${names.map((n) => `${n} → ${cfg.workspaces[n]}`).join(', ')}`);
@@ -84,7 +87,7 @@ async function main(): Promise<void> {
 
   const pollTimer = setInterval(() => void poll(), cfg.pollMs);
   const heartbeatTimer = setInterval(() => {
-    store.registerWorkspaces(names).catch((err: Error) => console.error(`[maria] ${err.message}`));
+    register().catch((err: Error) => console.error(`[maria] ${err.message}`));
   }, HEARTBEAT_MS);
   void poll();
 
