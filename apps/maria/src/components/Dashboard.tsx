@@ -1,17 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, Plug, Ticket, Users, type LucideProps } from 'lucide-react';
+import { Bell, Bot, Plug, Ticket, Users, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
-import { mentionName, type AgentInfo } from '@/lib/mentions';
+import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
+import { AgentLibrary } from './AgentLibrary';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionList } from './MissionList';
 import { MissionView } from './MissionView';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
+import { TopBar } from './TopBar';
 
 const WORKSPACE_REFRESH_MS = 30_000;
 
@@ -27,11 +29,15 @@ function hashFromPage(page: Page): string {
   return page.kind === 'agent' ? `#/agents/${encodeURIComponent(page.name)}` : `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors', { icon: ComponentType<LucideProps>; text: string }> = {
+const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
   teams: { icon: Users, text: 'Les équipes d’agents arrivent bientôt.' },
   tickets: { icon: Ticket, text: 'Les tickets arrivent bientôt.' },
   notifications: { icon: Bell, text: 'Les demandes d’autorisation et les questions des agents s’affichent en fenêtre dès qu’elles arrivent. L’historique des notifications arrive bientôt.' },
   connectors: { icon: Plug, text: 'La gestion des connecteurs arrive bientôt.' },
+  'new-agent': {
+    icon: Bot,
+    text: 'La création d’agents depuis MarIA arrive bientôt. En attendant, un agent est un fichier Markdown dans .claude/agents/ du dossier : il apparaît ici au prochain passage du worker.',
+  },
 };
 
 export function Dashboard({ email }: { email: string }) {
@@ -41,6 +47,7 @@ export function Dashboard({ email }: { email: string }) {
   const [page, setPage] = useState<Page>({ kind: 'overview' });
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [theme, toggleTheme] = useTheme();
 
   useEffect(() => {
     const sync = () => setPage(pageFromHash(window.location.hash));
@@ -111,6 +118,14 @@ export function Dashboard({ email }: { email: string }) {
     return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [workspaces]);
 
+  // Charge de chaque agent : nombre de missions chargées (les 50 dernières) qui le mentionnent.
+  const agentLoad = useMemo(() => {
+    const names = agents.map((a) => a.name);
+    const load: Record<string, number> = {};
+    for (const m of missions) for (const name of parseMentions(m.prompt, names).agents) load[name] = (load[name] ?? 0) + 1;
+    return load;
+  }, [agents, missions]);
+
   const selected = missions.find((m) => m.id === selectedId) ?? null;
   const openMission = (m: Mission) => {
     setSelectedId(m.id);
@@ -125,15 +140,22 @@ export function Dashboard({ email }: { email: string }) {
         page={page}
         onNavigate={navigate}
         agents={agents}
+        agentLoad={agentLoad}
         email={email}
         notificationCount={pendingCount}
         onSignOut={() => getSupabase().auth.signOut()}
       />
       <PermissionPrompt missions={missions} onCountChange={setPendingCount} />
       <main className="main">
-        <header className="page-head">
-          <h1>{title}</h1>
-        </header>
+        <TopBar
+          title={title}
+          agents={agents}
+          missions={missions}
+          dark={theme === 'dark'}
+          onToggleDark={toggleTheme}
+          onNavigate={navigate}
+          onOpenMission={openMission}
+        />
         {error && <p className="error banner">{error}</p>}
 
         {page.kind === 'overview' && (
@@ -154,16 +176,41 @@ export function Dashboard({ email }: { email: string }) {
 
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
 
+        {page.kind === 'agents' && <AgentLibrary agents={agents} agentLoad={agentLoad} onNavigate={navigate} />}
+
         {page.kind === 'agent' && (
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
         )}
 
-        {(page.kind === 'teams' || page.kind === 'tickets' || page.kind === 'notifications' || page.kind === 'connectors') && (
+        {(page.kind === 'teams' || page.kind === 'tickets' || page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
           <Placeholder {...PLACEHOLDERS[page.kind]} />
         )}
       </main>
     </div>
   );
+}
+
+const THEME_KEY = 'maria.theme';
+
+/** Thème clair/sombre : sombre par défaut, choix mémorisé dans le navigateur (appliqué avant l'affichage par layout.tsx). */
+function useTheme(): ['dark' | 'light', () => void] {
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  useEffect(() => {
+    setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  }, []);
+  const toggle = useCallback(() => {
+    setTheme((current) => {
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch {
+        /* stockage indisponible : le choix vaut pour cette visite */
+      }
+      return next;
+    });
+  }, []);
+  return [theme, toggle];
 }
 
 function Placeholder({ icon: Icon, text }: { icon: ComponentType<LucideProps>; text: string }) {
