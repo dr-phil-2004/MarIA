@@ -75,7 +75,6 @@ export function MemoryView({ workspaces }: { workspaces: Workspace[] }) {
   return (
     <div className="memory">
       <div className="memory-head">
-        <h2>Mémoire Ruflo</h2>
         <select value={workspace} onChange={(e) => setWorkspace(e.target.value)} disabled={workspaces.length === 0}>
           {workspaces.map((w) => (
             <option key={w.name} value={w.name}>

@@ -14,10 +14,12 @@ export function isOnline(ws: Workspace): boolean {
 interface Props {
   workspaces: Workspace[];
   onCreated: (mission: Mission) => void;
+  /** Texte de départ, ex. « @coder » depuis la page d'un agent. */
+  initialPrompt?: string;
 }
 
-export function MissionForm({ workspaces, onCreated }: Props) {
-  const [prompt, setPrompt] = useState('');
+export function MissionForm({ workspaces, onCreated, initialPrompt = '' }: Props) {
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [workspace, setWorkspace] = useState('');
   const [useWorktree, setUseWorktree] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,7 +64,7 @@ export function MissionForm({ workspaces, onCreated }: Props) {
       setError(err.message);
       return;
     }
-    setPrompt('');
+    setPrompt(initialPrompt);
     onCreated(data as Mission);
   }
 
