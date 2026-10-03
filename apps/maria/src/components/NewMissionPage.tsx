@@ -23,12 +23,15 @@ export function NewMissionPage({
   workspaces,
   email,
   onCreated,
+  initialPrompt = '',
 }: {
   workspaces: Workspace[];
   email: string;
   onCreated: (mission: Mission) => void;
+  /** Consigne de départ, ex. les @agents d'une équipe. */
+  initialPrompt?: string;
 }) {
-  const m = useMissionComposer(workspaces, onCreated);
+  const m = useMissionComposer(workspaces, onCreated, initialPrompt);
 
   return (
     <div className="welcome">

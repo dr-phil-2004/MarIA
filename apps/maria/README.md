@@ -50,7 +50,7 @@ Si le projet Supabase existe déjà, avec ses migrations et ton compte membre, p
 
 1. **Exposer le schéma.** Dans *Project Settings → API → Exposed schemas*, ajoute `maria`.
 2. **Appliquer les migrations.** Dans le *SQL Editor*, exécute **dans l'ordre** les fichiers de `supabase/migrations/` :
-   `0001_maria_init.sql` → `0007_ruflo_memory.sql`.
+   `0001_maria_init.sql` → `0009_teams.sql`.
    Termine par :
    ```sql
    notify pgrst, 'reload schema';
@@ -162,7 +162,7 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 | « Accès refusé » à la connexion | Ton compte n'est pas dans `maria.members` (étape 3.3) |
 | `spawn claude ENOENT` | Claude Code n'est pas installé pour le Node 22 actif (`npm i -g @anthropic-ai/claude-code`) |
 | Pas de fenêtre d'autorisation | Retirer `MARIA_INTERACTIVE_PERMISSIONS=0` de `.env.local` et redémarrer le worker |
-| Erreur `... applique la migration 0006/0007` | Exécuter la migration indiquée dans Supabase |
+| Erreur `... applique la migration 0006…0009` | Exécuter la migration indiquée dans Supabase |
 | Le lien de connexion renvoie vers localhost | Adresse Vercel absente des *Redirect URLs* Supabase (étape 3.4) |
 | Onglet Mémoire vide | La base Ruflo n'existe pas encore dans ce dossier (`npx ruflo@latest memory init`) |
 

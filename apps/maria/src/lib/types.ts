@@ -76,6 +76,21 @@ export interface MemoryEntry {
   updated_at: string | null;
 }
 
+/** Membre d'une équipe : un agent disponible, son rôle, et s'il dirige l'équipe. */
+export interface TeamMember {
+  agent: string;
+  role: string;
+  lead: boolean;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  members: TeamMember[];
+  created_at: string;
+}
+
 export const FINISHED_STATUSES: readonly MissionStatus[] = ['completed', 'failed', 'cancelled'];
 
 // --- Événements stream-json de Claude Code (sous-ensemble utilisé par MarIA) ---
