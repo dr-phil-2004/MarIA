@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AgentInfo } from '../src/lib/mentions';
-import type { MemoryEntry, Mission, MissionStatus, StreamEvent } from '../src/lib/types';
+import type { MemoryEntry, Mission, MissionStatus, StreamEvent, Ticket } from '../src/lib/types';
 
 const MAX_STRING = 4000;
 
@@ -115,6 +115,17 @@ export class Store {
   async updateWorktree(worktreePath: string, patch: Partial<Mission>): Promise<void> {
     const { error } = await this.db.from('missions').update(patch).eq('worktree_path', worktreePath);
     if (error) throw new Error(`updateWorktree: ${error.message}`);
+  }
+
+  async getTicket(id: string): Promise<Ticket | null> {
+    const { data, error } = await this.db.from('tickets').select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(`getTicket: ${error.message}`);
+    return data as Ticket | null;
+  }
+
+  async updateTicket(id: string, patch: Partial<Ticket>): Promise<void> {
+    const { error } = await this.db.from('tickets').update(patch).eq('id', id);
+    if (error) throw new Error(`updateTicket: ${error.message}`);
   }
 
   async getMission(id: string): Promise<Mission | null> {

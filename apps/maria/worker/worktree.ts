@@ -44,7 +44,7 @@ export async function isGitRepo(dir: string): Promise<boolean> {
   }
 }
 
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return (
     text
       .normalize('NFD')
@@ -63,12 +63,14 @@ export async function createWorktree(
   missionId: string,
   prompt: string,
   opts: WorktreeOptions,
+  /** Nom de branche imposé (ex. celui d'un ticket) ; sinon maria/<id>-<slug>. */
+  branchName?: string,
 ): Promise<WorktreeInfo> {
   const top = await git(workspaceDir, ['rev-parse', '--show-toplevel']);
   const rel = path.relative(top, workspaceDir);
   const baseCommit = await git(workspaceDir, ['rev-parse', 'HEAD']);
   const short = missionId.slice(0, 8);
-  const branch = `maria/${short}-${slugify(prompt)}`;
+  const branch = branchName ?? `maria/${short}-${slugify(prompt)}`;
   const wtPath = path.join(opts.root, workspaceName, short);
 
   mkdirSync(path.dirname(wtPath), { recursive: true });

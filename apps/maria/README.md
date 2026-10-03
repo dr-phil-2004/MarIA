@@ -50,7 +50,7 @@ Si le projet Supabase existe déjà, avec ses migrations et ton compte membre, p
 
 1. **Exposer le schéma.** Dans *Project Settings → API → Exposed schemas*, ajoute `maria`.
 2. **Appliquer les migrations.** Dans le *SQL Editor*, exécute **dans l'ordre** les fichiers de `supabase/migrations/` :
-   `0001_maria_init.sql` → `0009_teams.sql`.
+   `0001_maria_init.sql` → `0010_tickets.sql`.
    Termine par :
    ```sql
    notify pgrst, 'reload schema';
@@ -103,6 +103,7 @@ MARIA_ALLOWED_TOOLS=Read,Glob,Grep,Edit,Write,Bash(git status),Bash(git diff:*),
 | `MARIA_RUFLO_CMD` | `npx -y ruflo@latest` | Commande Ruflo pour lire le registre d'agents |
 | `MARIA_IGNORE_PATHS` | `.claude-flow/,.swarm/` | Préfixes exclus de la liste des fichiers modifiés |
 | `MARIA_POLL_MS` | `2000` | Fréquence de recherche de nouvelles missions |
+| `MARIA_TICKET_PR` | activé | `0` = ne pas pousser la branche d’un ticket ni ouvrir sa PR GitHub |
 
 </details>
 
@@ -150,6 +151,7 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 - **Chaîne d'agents** : `@system-architect @coder @tester Ajoute…` n'utilise que ces agents, dans cet ordre, l'un après l'autre. Taper `@` propose les agents du dossier (`.claude/agents`). Les noms avec espaces s'écrivent avec des tirets, par exemple `@Benchmark-Suite`.
 - **Autorisations et questions** : une fenêtre s'ouvre dans MarIA quand l'agent veut faire une action non pré-autorisée, ou quand il te pose une question.
 - **Continuer** : relance la même conversation Claude Code avec une nouvelle consigne.
+- **Tickets** : vues Tableau (Kanban), Liste et Tableur. « Lancer l’agent » exécute le ticket avec l’agent assigné sur la branche `maria/T-<numéro>-…` ; à la fin, le worker pousse la branche et ouvre la PR avec la CLI GitHub (`gh`, à installer et connecter une fois avec `gh auth login` sur la machine du worker), puis le ticket passe « En revue » avec le lien de la PR.
 - **Mémoire** : l'onglet affiche la mémoire Ruflo du dossier (`.swarm/memory.db`), recopiée par le worker toutes les 30 s.
 
 ## Dépannage
@@ -162,7 +164,7 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 | « Accès refusé » à la connexion | Ton compte n'est pas dans `maria.members` (étape 3.3) |
 | `spawn claude ENOENT` | Claude Code n'est pas installé pour le Node 22 actif (`npm i -g @anthropic-ai/claude-code`) |
 | Pas de fenêtre d'autorisation | Retirer `MARIA_INTERACTIVE_PERMISSIONS=0` de `.env.local` et redémarrer le worker |
-| Erreur `... applique la migration 0006…0009` | Exécuter la migration indiquée dans Supabase |
+| Erreur `... applique la migration 0006…0010` | Exécuter la migration indiquée dans Supabase |
 | Le lien de connexion renvoie vers localhost | Adresse Vercel absente des *Redirect URLs* Supabase (étape 3.4) |
 | Onglet Mémoire vide | La base Ruflo n'existe pas encore dans ce dossier (`npx ruflo@latest memory init`) |
 

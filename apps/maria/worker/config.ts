@@ -29,6 +29,8 @@ export interface WorkerConfig {
   worktreeCopies: string[];
   /** Nombre maximal de missions en worktree simultanées par dossier. */
   maxParallel: number;
+  /** Ouvrir une PR GitHub (git push + gh) à la fin d'une mission de ticket. */
+  ticketPr: boolean;
   /** Base mémoire Ruflo, relative à chaque dossier (`.swarm/memory.db`) ; null = pas de synchronisation. */
   memoryDb: string | null;
 }
@@ -115,6 +117,7 @@ export function loadConfig(): WorkerConfig {
     worktreeLinks: list(process.env.MARIA_WORKTREE_LINKS ?? '.claude-flow,.swarm,node_modules'),
     worktreeCopies: list(process.env.MARIA_WORKTREE_COPY ?? '.mcp.json,.claude,CLAUDE.md'),
     maxParallel,
+    ticketPr: process.env.MARIA_TICKET_PR?.trim() !== '0',
     memoryDb: ['', '0'].includes(process.env.MARIA_MEMORY_DB?.trim() ?? '.swarm/memory.db') ? null : process.env.MARIA_MEMORY_DB?.trim() || '.swarm/memory.db',
   };
 }

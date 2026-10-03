@@ -30,6 +30,8 @@ export interface Mission {
   worktree_state: 'active' | 'merged' | 'discarded' | null;
   worktree_action: 'merge' | 'discard' | null;
   worktree_error: string | null;
+  /** Ticket exécuté par cette mission (page Tickets). */
+  ticket_id?: string | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;
@@ -89,6 +91,34 @@ export interface Team {
   description: string;
   members: TeamMember[];
   created_at: string;
+}
+
+export type TicketStatus = 'open' | 'grooming' | 'planning' | 'ready' | 'in_progress' | 'review' | 'blocked' | 'done';
+export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type TicketType = 'feature' | 'bug' | 'chore' | 'research';
+
+export interface Ticket {
+  id: string;
+  number: number;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  type: TicketType;
+  assignee: string | null;
+  workspace: string | null;
+  branch: string | null;
+  pr_url: string | null;
+  pr_number: number | null;
+  mission_id: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Clé lisible d'un ticket, reprise dans le nom de sa branche : T-12. */
+export function ticketKey(t: Pick<Ticket, 'number'>): string {
+  return `T-${t.number}`;
 }
 
 export const FINISHED_STATUSES: readonly MissionStatus[] = ['completed', 'failed', 'cancelled'];
