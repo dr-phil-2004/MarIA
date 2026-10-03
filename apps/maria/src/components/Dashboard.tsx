@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
@@ -15,6 +15,7 @@ import { MissionView } from './MissionView';
 import { NewMissionPage } from './NewMissionPage';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
+import { TeamsPage } from './TeamsPage';
 import { TopBar } from './TopBar';
 
 const WORKSPACE_REFRESH_MS = 30_000;
@@ -34,8 +35,7 @@ function hashFromPage(page: Page): string {
   return `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
-  teams: { icon: Users, text: 'Les équipes d’agents arrivent bientôt.' },
+const PLACEHOLDERS: Record<'tickets' | 'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
   tickets: { icon: Ticket, text: 'Les tickets arrivent bientôt.' },
   notifications: { icon: Bell, text: 'Les demandes d’autorisation et les questions des agents s’affichent en fenêtre dès qu’elles arrivent. L’historique des notifications arrive bientôt.' },
   connectors: { icon: Plug, text: 'La gestion des connecteurs arrive bientôt.' },
@@ -134,6 +134,14 @@ export function Dashboard({ email }: { email: string }) {
     navigate({ kind: 'mission', id: m.id });
   };
 
+  // Agents cités dans une mission en cours : « actifs » dans les équipes.
+  const activeAgents = useMemo(() => {
+    const names = agents.map((a) => a.name);
+    const set = new Set<string>();
+    for (const m of missions) if (m.status === 'running' || m.status === 'queued') for (const a of parseMentions(m.prompt, names).agents) set.add(a);
+    return set;
+  }, [agents, missions]);
+
   const opened = page.kind === 'mission' ? (missions.find((m) => m.id === page.id) ?? null) : null;
   const title =
     page.kind === 'agent'
@@ -166,7 +174,7 @@ export function Dashboard({ email }: { email: string }) {
           onSignOut={() => getSupabase().auth.signOut()}
         />
       <main className="main">
-        {page.kind !== 'new-mission' && (
+        {page.kind !== 'new-mission' && page.kind !== 'teams' && (
           <div className="page-title">
             <h1>{title}</h1>
             {page.kind === 'overview' && (
@@ -200,7 +208,18 @@ export function Dashboard({ email }: { email: string }) {
           </div>
         )}
 
-        {page.kind === 'new-mission' && <NewMissionPage workspaces={workspaces} email={email} onCreated={openMission} />}
+        {page.kind === 'new-mission' && (
+          <NewMissionPage key={page.prompt ?? ''} workspaces={workspaces} email={email} onCreated={openMission} initialPrompt={page.prompt} />
+        )}
+
+        {page.kind === 'teams' && (
+          <TeamsPage
+            agents={agents}
+            activeAgents={activeAgents}
+            onOpenAgent={(name) => navigate({ kind: 'agent', name })}
+            onLaunch={(prompt) => navigate({ kind: 'new-mission', prompt })}
+          />
+        )}
 
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
 
@@ -210,7 +229,7 @@ export function Dashboard({ email }: { email: string }) {
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
         )}
 
-        {(page.kind === 'teams' || page.kind === 'tickets' || page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
+        {(page.kind === 'tickets' || page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
           <Placeholder {...PLACEHOLDERS[page.kind]} />
         )}
       </main>

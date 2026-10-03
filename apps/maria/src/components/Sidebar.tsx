@@ -14,7 +14,7 @@ export type Page =
   | { kind: 'connectors' }
   | { kind: 'agents' }
   | { kind: 'new-agent' }
-  | { kind: 'new-mission' }
+  | { kind: 'new-mission'; prompt?: string }
   | { kind: 'agent'; name: string }
   | { kind: 'mission'; id: string };
 
