@@ -3,14 +3,15 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { mentionName, parseMentions } from '../src/lib/mentions';
-import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
+import { ticketKey, type Mission, type MissionStatus, type StreamEvent, type Ticket, type ToolUseBlock } from '../src/lib/types';
 import { listAgents } from './agents';
 import type { WorkerConfig } from './config';
 import { diffSnapshots, fileFromToolUse, fileStats, snapshotDirty } from './files';
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
-import { commitWorktree, createWorktree, isGitRepo, worktreeCwd, type WorktreeInfo } from './worktree';
+import { pushAndOpenPr } from './github';
+import { commitWorktree, createWorktree, isGitRepo, slugify, worktreeCwd, type WorktreeInfo } from './worktree';
 
 const STATUS_POLL_MS = 2000;
 const KILL_GRACE_MS = 5000;
@@ -120,6 +121,7 @@ async function prepareWorkdir(
   cfg: WorkerConfig,
   store: Store,
   sink: EventSink,
+  ticket: Ticket | null,
 ): Promise<{ cwd: string; worktree: WorktreeInfo | null }> {
   const workspaceDir = cfg.workspaces[mission.workspace];
   if (!mission.use_worktree) return { cwd: workspaceDir, worktree: null };
@@ -145,11 +147,16 @@ async function prepareWorkdir(
   if (!(await isGitRepo(workspaceDir))) {
     throw new Error(`« ${mission.workspace} » n’est pas un dépôt git : impossible d’isoler la mission dans une branche (lance « git init » dans le dossier, ou décoche « Branche isolée »).`);
   }
-  const worktree = await createWorktree(workspaceDir, mission.workspace, mission.id, mission.prompt, {
-    root: cfg.worktreeRoot,
-    links: cfg.worktreeLinks,
-    copies: cfg.worktreeCopies,
-  });
+  // Un ticket donne son numéro à la branche : maria/T-12-titre-du-ticket.
+  const branchName = ticket ? `maria/${ticketKey(ticket)}-${slugify(ticket.title)}` : undefined;
+  const worktree = await createWorktree(
+    workspaceDir,
+    mission.workspace,
+    mission.id,
+    mission.prompt,
+    { root: cfg.worktreeRoot, links: cfg.worktreeLinks, copies: cfg.worktreeCopies },
+    branchName,
+  );
   await store.update(mission.id, {
     branch: worktree.branch,
     worktree_path: worktree.path,
@@ -173,15 +180,26 @@ export async function runMission(
   const sink = new EventSink(store, mission.id);
   sink.info(`Mission démarrée dans « ${mission.workspace} »`);
 
+  // Mission d'exécution d'un ticket : le ticket passe « en cours » et pointe vers cette mission.
+  const ticket = mission.ticket_id ? await store.getTicket(mission.ticket_id).catch(() => null) : null;
+  const updateTicket = (patch: Partial<Ticket>) =>
+    ticket ? store.updateTicket(ticket.id, patch).catch((err: Error) => console.error(`[maria] ticket ${ticketKey(ticket)} : ${err.message}`)) : Promise.resolve();
+  if (ticket) {
+    sink.info(`Ticket ${ticketKey(ticket)} · ${ticket.title}`);
+    await updateTicket({ status: 'in_progress', mission_id: mission.id });
+  }
+
   let prepared: { cwd: string; worktree: WorktreeInfo | null };
   try {
-    prepared = await prepareWorkdir(mission, cfg, store, sink);
+    prepared = await prepareWorkdir(mission, cfg, store, sink, ticket);
   } catch (err) {
     sink.info((err as Error).message, 'error');
     await sink.flush();
+    await updateTicket({ status: 'blocked' });
     throw err;
   }
   const { cwd, worktree } = prepared;
+  if (worktree) await updateTicket({ branch: worktree.branch });
   const { agents: chain, unknown } = parseMentions(mission.prompt, listAgents(cwd).map((a) => a.name));
   if (unknown.length > 0) sink.info(`Agent(s) inconnu(s) dans ce dossier, ignoré(s) : ${unknown.map((a) => `@${a}`).join(', ')}`, 'warn');
   if (chain.length > 0) sink.info(`Chaîne d’agents : ${chain.map((a) => `@${mentionName(a)}`).join(' → ')} (les autres sous-agents sont bloqués)`);
@@ -304,13 +322,30 @@ export async function runMission(
   }
 
   if (worktree && !exit.error) {
-    const title = mission.prompt.split('\n')[0].slice(0, 72);
+    const title = ticket ? `${ticketKey(ticket)}: ${ticket.title}`.slice(0, 72) : `MarIA: ${mission.prompt.split('\n')[0].slice(0, 72)}`;
     try {
-      const sha = await commitWorktree(cwd, `MarIA: ${title}\n\nMission ${mission.id}`, [...cfg.worktreeLinks, ...cfg.worktreeCopies]);
+      const sha = await commitWorktree(cwd, `${title}\n\nMission ${mission.id}`, [...cfg.worktreeLinks, ...cfg.worktreeCopies]);
       sink.info(sha ? `Modifications commitées sur ${worktree.branch} (${sha.slice(0, 7)}).` : `Aucune modification à commiter sur ${worktree.branch}.`);
     } catch (err) {
       sink.info(`Commit sur ${worktree.branch} impossible : ${(err as Error).message}`, 'error');
     }
+  }
+
+  // Ticket : sa branche est poussée et sa PR ouverte (ou mise à jour), puis il passe en revue.
+  if (ticket) {
+    let patch: Partial<Ticket> = { status: status === 'completed' ? 'review' : status === 'cancelled' ? 'ready' : 'blocked' };
+    if (worktree && status === 'completed' && cfg.ticketPr) {
+      const { pr, note } = await pushAndOpenPr({
+        cwd,
+        workspaceDir: cfg.workspaces[mission.workspace],
+        branch: worktree.branch,
+        title: `${ticketKey(ticket)}: ${ticket.title}`,
+        body: `${ticket.description || ticket.title}\n\n---\nExécuté par MarIA${ticket.assignee ? ` avec @${ticket.assignee}` : ''} — mission ${mission.id}.`,
+      });
+      sink.info(pr ? `${note} : ${pr.url}` : `PR GitHub : ${note}`, pr ? 'info' : 'warn');
+      if (pr) patch = { ...patch, pr_url: pr.url, pr_number: pr.number };
+    }
+    await updateTicket(patch);
   }
 
   await store.expirePermissions([mission.id]).catch((err: Error) => console.error(`[maria] ${err.message}`));

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bell, Bot, Plug, Plus, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
@@ -16,6 +16,7 @@ import { NewMissionPage } from './NewMissionPage';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
 import { TeamsPage } from './TeamsPage';
+import { TicketsPage } from './TicketsPage';
 import { TopBar } from './TopBar';
 
 const WORKSPACE_REFRESH_MS = 30_000;
@@ -35,8 +36,7 @@ function hashFromPage(page: Page): string {
   return `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'tickets' | 'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
-  tickets: { icon: Ticket, text: 'Les tickets arrivent bientôt.' },
+const PLACEHOLDERS: Record<'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
   notifications: { icon: Bell, text: 'Les demandes d’autorisation et les questions des agents s’affichent en fenêtre dès qu’elles arrivent. L’historique des notifications arrive bientôt.' },
   connectors: { icon: Plug, text: 'La gestion des connecteurs arrive bientôt.' },
   'new-agent': {
@@ -212,6 +212,8 @@ export function Dashboard({ email }: { email: string }) {
           <NewMissionPage key={page.prompt ?? ''} workspaces={workspaces} email={email} onCreated={openMission} initialPrompt={page.prompt} />
         )}
 
+        {page.kind === 'tickets' && <TicketsPage agents={agents} workspaces={workspaces} missions={missions} onOpenMission={openMission} />}
+
         {page.kind === 'teams' && (
           <TeamsPage
             agents={agents}
@@ -229,7 +231,7 @@ export function Dashboard({ email }: { email: string }) {
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
         )}
 
-        {(page.kind === 'tickets' || page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
+        {(page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
           <Placeholder {...PLACEHOLDERS[page.kind]} />
         )}
       </main>
