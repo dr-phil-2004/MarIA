@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
-import { Bell, Brain, House, LogOut, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
+import { Bell, Brain, House, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 import { AgentAvatar, LoadBars, loadLevel, loadTitle } from './AgentAvatar';
 
@@ -74,13 +74,11 @@ interface Props {
   agents: AgentInfo[];
   /** Nombre de missions récentes où chaque agent a été mentionné (@agent). */
   agentLoad: Record<string, number>;
-  email: string;
   notificationCount: number;
-  onSignOut: () => void;
 }
 
-/** Barre latérale : navigation principale, agents les plus sollicités et déconnexion. */
-export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificationCount, onSignOut }: Props) {
+/** Barre latérale : navigation principale et agents les plus sollicités. */
+export function Sidebar({ page, onNavigate, agents, agentLoad, notificationCount }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
   // Préférence mémorisée dans le navigateur ; sans stockage, la barre reste dépliée.
@@ -115,7 +113,6 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificati
   // Une mission ouverte reste rattachée à Overview dans la navigation.
   const current: Page['kind'] = page.kind === 'mission' ? 'overview' : page.kind;
   const isActive = (p: Page) => p.kind === current && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
-  const initial = (email[0] ?? '?').toUpperCase();
 
   return (
     <nav className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Navigation principale">
@@ -195,21 +192,6 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificati
         </div>
       </div>
 
-      <div className="sb-foot">
-        <div className="sb-user">
-          <span className="sb-avatar" aria-hidden="true">
-            {initial}
-          </span>
-          <span className="sb-label sb-user-text">
-            <strong>{email.split('@')[0]}</strong>
-            <span>{email}</span>
-          </span>
-        </div>
-        <button className="sb-signout" onClick={onSignOut} title="Se déconnecter">
-          <LogOut size={18} strokeWidth={1.75} />
-          <span className="sb-label">Sign out</span>
-        </button>
-      </div>
     </nav>
   );
 }

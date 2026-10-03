@@ -152,29 +152,30 @@ export function Dashboard({ email }: { email: string }) {
         onNavigate={navigate}
         agents={agents}
         agentLoad={agentLoad}
-        email={email}
         notificationCount={pendingCount}
-        onSignOut={() => getSupabase().auth.signOut()}
       />
       <PermissionPrompt missions={missions} onCountChange={setPendingCount} />
-      <main className="main">
+      <div className="workspace">
         <TopBar
-          title={title}
-          action={
-            page.kind === 'overview' ? (
-              <button className="primary-btn" onClick={() => setComposing(true)}>
-                <Plus size={16} strokeWidth={2.25} />
-                Nouvelle mission
-              </button>
-            ) : undefined
-          }
           agents={agents}
           missions={missions}
           dark={theme === 'dark'}
           onToggleDark={toggleTheme}
           onNavigate={navigate}
           onOpenMission={openMission}
+          email={email}
+          onSignOut={() => getSupabase().auth.signOut()}
         />
+      <main className="main">
+        <div className="page-title">
+          <h1>{title}</h1>
+          {page.kind === 'overview' && (
+            <button className="primary-btn" onClick={() => setComposing(true)}>
+              <Plus size={16} strokeWidth={2.25} />
+              Nouvelle mission
+            </button>
+          )}
+        </div>
         {error && <p className="error banner">{error}</p>}
 
         {page.kind === 'overview' && (
@@ -210,6 +211,7 @@ export function Dashboard({ email }: { email: string }) {
           <Placeholder {...PLACEHOLDERS[page.kind]} />
         )}
       </main>
+      </div>
 
       {composing && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-mission-title" onClick={() => setComposing(false)}>
