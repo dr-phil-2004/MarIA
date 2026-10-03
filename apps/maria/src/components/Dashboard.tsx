@@ -193,7 +193,7 @@ export function Dashboard({ email }: { email: string }) {
               Overview
             </button>
             {opened ? (
-              <MissionView key={opened.id} mission={opened} onFollowUp={openMission} />
+              <MissionView key={opened.id} mission={opened} agents={agents} email={email} onFollowUp={openMission} />
             ) : (
               <p className="muted">Mission introuvable parmi les 50 plus récentes.</p>
             )}

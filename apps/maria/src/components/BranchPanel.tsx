@@ -3,19 +3,13 @@
 import { useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import type { Mission } from '@/lib/types';
-
-const STATE_LABEL = {
-  active: { label: 'À valider', className: 'running' },
-  merged: { label: 'Fusionnée', className: 'completed' },
-  discarded: { label: 'Abandonnée', className: 'cancelled' },
-} as const;
+import { BranchBadge } from './StatusBadge';
 
 /** Branche git isolée de la mission : fusion dans le dossier principal ou abandon. */
 export function BranchPanel({ mission, finished }: { mission: Mission; finished: boolean }) {
   const [error, setError] = useState<string | null>(null);
   if (!mission.branch || !mission.worktree_state) return null;
 
-  const state = STATE_LABEL[mission.worktree_state];
   const pending = mission.worktree_action;
   const canAct = finished && mission.worktree_state === 'active' && !pending;
 
@@ -31,12 +25,12 @@ export function BranchPanel({ mission, finished }: { mission: Mission; finished:
   }
 
   return (
-    <div className="branch card">
-      <h2>Branche</h2>
-      <div className="agent-head">
-        <code>{mission.branch}</code>
-        <span className={`badge ${state.className}`}>{state.label}</span>
+    <section className="float-card branch">
+      <div className="float-head">
+        <h3>Branche</h3>
+        <BranchBadge state={mission.worktree_state} small />
       </div>
+      <code className="branch-name">{mission.branch}</code>
       {mission.worktree_path && mission.worktree_state === 'active' && (
         <p className="muted small">Worktree : {mission.worktree_path}</p>
       )}
@@ -48,12 +42,14 @@ export function BranchPanel({ mission, finished }: { mission: Mission; finished:
       {error && <p className="error small">{error}</p>}
       {canAct && (
         <div className="row">
-          <button onClick={() => request('merge')}>Fusionner</button>
-          <button className="danger" onClick={() => request('discard')}>
+          <button className="primary-btn small" onClick={() => request('merge')}>
+            Fusionner
+          </button>
+          <button className="ghost-btn danger-text" onClick={() => request('discard')}>
             Abandonner
           </button>
         </div>
       )}
-    </div>
+    </section>
   );
 }

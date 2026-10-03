@@ -4,7 +4,7 @@ import { GitBranch } from 'lucide-react';
 import { parseMentions } from '@/lib/mentions';
 import type { Mission } from '@/lib/types';
 import { AgentAvatar } from './AgentAvatar';
-import { STATUS_LABEL } from './MissionList';
+import { MissionBadge } from './StatusBadge';
 
 const MAX_AVATARS = 4;
 
@@ -33,7 +33,7 @@ export function MissionTable({
             return (
               <li key={m.id}>
                 <button className="mission-row" onClick={() => onOpen(m)}>
-                  <span className={`badge ${m.status}`}>{STATUS_LABEL[m.status]}</span>
+                  <MissionBadge status={m.status} small />
                   <span className="mission-row-title">
                     {m.prompt.split('\n')[0]}
                     {m.branch && (

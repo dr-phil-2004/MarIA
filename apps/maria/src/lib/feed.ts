@@ -1,11 +1,12 @@
 import type { MissionEvent, StreamEvent, ToolResultBlock, ToolUseBlock } from './types';
 
-export type FeedItem =
-  | { key: string; kind: 'info'; level: 'info' | 'warn' | 'error'; text: string }
-  | { key: string; kind: 'text'; agent: string; text: string }
-  | { key: string; kind: 'tool'; agent: string; tool: string; detail: string }
-  | { key: string; kind: 'tool_result'; agent: string; isError: boolean; text: string }
-  | { key: string; kind: 'done'; isError: boolean; text: string };
+export type FeedItem = { key: string; at: string } & (
+  | { kind: 'info'; level: 'info' | 'warn' | 'error'; text: string }
+  | { kind: 'text'; agent: string; text: string }
+  | { kind: 'tool'; agent: string; tool: string; detail: string; id: string }
+  | { kind: 'tool_result'; agent: string; isError: boolean; text: string; toolUseId: string }
+  | { kind: 'done'; isError: boolean; text: string }
+);
 
 const MAIN_AGENT = 'MarIA';
 
@@ -61,26 +62,27 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
   let sessionShown = false;
   const items: FeedItem[] = [];
 
-  for (const { id, payload: e } of events) {
+  for (const { id, payload: e, created_at: at } of events) {
     const agent = (e.parent_tool_use_id && agentByToolUse.get(e.parent_tool_use_id)) || MAIN_AGENT;
     const content = Array.isArray(e.message?.content) ? e.message.content : [];
 
     switch (e.type) {
       case 'maria':
-        items.push({ key: `${id}`, kind: 'info', level: e.level ?? 'info', text: e.text ?? '' });
+        items.push({ key: `${id}`, at, kind: 'info', level: e.level ?? 'info', text: e.text ?? '' });
         break;
       case 'system':
         // Les commandes lancées en arrière-plan émettent aussi task_notification : on ne garde que les sous-agents.
         if (e.subtype === 'task_notification' && e.tool_use_id && agentByToolUse.has(e.tool_use_id)) {
           const name = agentByToolUse.get(e.tool_use_id);
           const label = e.status === 'completed' ? 'a terminé' : e.status === 'failed' ? 'a échoué' : `s’est arrêté (${e.status ?? '?'})`;
-          items.push({ key: `${id}`, kind: 'info', level: e.status === 'failed' ? 'error' : 'info', text: `Sous-agent ${name} ${label}.` });
+          items.push({ key: `${id}`, at, kind: 'info', level: e.status === 'failed' ? 'error' : 'info', text: `Sous-agent ${name} ${label}.` });
         }
         // Avec des sous-agents asynchrones, Claude Code renvoie un init à chaque reprise : on n'affiche que le premier.
         if (e.subtype === 'init' && !sessionShown) {
           sessionShown = true;
           items.push({
             key: `${id}`,
+            at,
             kind: 'info',
             level: 'info',
             text: `Session Claude Code ouverte${e.model ? ` — modèle ${e.model}` : ''}${e.tools ? `, ${e.tools.length} outils` : ''}`,
@@ -91,13 +93,13 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
         content.forEach((block, i) => {
           if (block.type === 'text') {
             const text = (block as { text: string }).text.trim();
-            if (text) items.push({ key: `${id}-${i}`, kind: 'text', agent, text });
+            if (text) items.push({ key: `${id}-${i}`, at, kind: 'text', agent, text });
           } else if (block.type === 'tool_use') {
             const tool = block as ToolUseBlock;
             if ((tool.name === 'Task' || tool.name === 'Agent') && typeof tool.input?.subagent_type === 'string') {
               agentByToolUse.set(tool.id, tool.input.subagent_type);
             }
-            items.push({ key: `${id}-${i}`, kind: 'tool', agent, tool: tool.name, detail: describeTool(tool.name, tool.input ?? {}) });
+            items.push({ key: `${id}-${i}`, at, kind: 'tool', agent, tool: tool.name, detail: describeTool(tool.name, tool.input ?? {}), id: tool.id });
           }
         });
         break;
@@ -105,7 +107,7 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
         content.forEach((block, i) => {
           if (block.type !== 'tool_result') return;
           const res = block as ToolResultBlock;
-          items.push({ key: `${id}-${i}`, kind: 'tool_result', agent, isError: !!res.is_error, text: truncate(resultText(res), 300) });
+          items.push({ key: `${id}-${i}`, at, kind: 'tool_result', agent, isError: !!res.is_error, text: truncate(resultText(res), 600), toolUseId: res.tool_use_id });
         });
         break;
       case 'result': {
@@ -114,12 +116,13 @@ export function buildFeed(events: MissionEvent[]): FeedItem[] {
           const list = [...new Set(denials.map((d) => `${d.tool_name}: ${describeTool(d.tool_name, d.tool_input ?? {})}`))];
           items.push({
             key: `${id}-denials`,
+            at,
             kind: 'info',
             level: 'warn',
             text: `${denials.length} action(s) refusée(s) (par toi, ou sans réponse dans le délai). Pour ne plus avoir à les valider, ajoute-les à MARIA_ALLOWED_TOOLS :\n${list.join('\n')}`,
           });
         }
-        const item: Extract<FeedItem, { kind: 'done' }> = { key: `${id}`, kind: 'done', isError: !!e.is_error, text: summarizeResult(e, true) };
+        const item: Extract<FeedItem, { kind: 'done' }> = { key: `${id}`, at, kind: 'done', isError: !!e.is_error, text: summarizeResult(e, true) };
         resultEvents.push({ item, event: e });
         items.push(item);
         break;
