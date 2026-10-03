@@ -12,7 +12,7 @@ export function TicketCard({ ticket, onOpen, onDragStart }: { ticket: Ticket; on
   const priority = PRIORITY_BY_ID[ticket.priority];
   return (
     <article
-      className="tk"
+      className={`tk prio-${ticket.priority}`}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onClick={onOpen}
