@@ -14,6 +14,7 @@ export type Page =
   | { kind: 'connectors' }
   | { kind: 'agents' }
   | { kind: 'new-agent' }
+  | { kind: 'new-mission' }
   | { kind: 'agent'; name: string }
   | { kind: 'mission'; id: string };
 
@@ -34,6 +35,7 @@ export const NAV_LABEL: Record<StaticKind, string> = {
   connectors: 'Connecteurs',
   agents: 'Bibliothèque d’agents',
   'new-agent': 'Nouvel agent',
+  'new-mission': 'Nouvelle mission',
 };
 
 export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
@@ -54,7 +56,7 @@ export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
 const SIDEBAR_AGENTS = 4;
 const COLLAPSED_KEY = 'maria.sidebarCollapsed';
 
-function Logo() {
+export function Logo() {
   return (
     <svg className="logo-mark" viewBox="0 0 28 28" aria-hidden="true">
       <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
@@ -111,7 +113,7 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, notificationCount
   const more = sorted.length - shown.length;
 
   // Une mission ouverte reste rattachée à Overview dans la navigation.
-  const current: Page['kind'] = page.kind === 'mission' ? 'overview' : page.kind;
+  const current: Page['kind'] = page.kind === 'mission' || page.kind === 'new-mission' ? 'overview' : page.kind;
   const isActive = (p: Page) => p.kind === current && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
 
   return (

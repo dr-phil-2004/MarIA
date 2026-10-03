@@ -29,6 +29,7 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
   }, [agents, mention]);
 
   const chain = useMemo(() => parseMentions(value, agents.map((a) => a.name)), [value, agents]);
+  const unknown = chain.unknown.filter((a) => !mention || a.toLowerCase() !== mention.query.toLowerCase());
 
   function refresh(text: string, caret: number | null) {
     setMention(caret == null ? null : mentionAt(text, caret));
@@ -114,8 +115,9 @@ export function AgentPrompt({ value, onChange, agents, placeholder, rows, onSubm
           <span className="muted"> — seuls ces agents seront utilisés, dans cet ordre</span>
         </p>
       )}
-      {chain.unknown.length > 0 && agents.length > 0 && (
-        <p className="muted small">Agent(s) inconnu(s) dans ce dossier, ignoré(s) : {chain.unknown.map((a) => `@${a}`).join(', ')}</p>
+      {/* La mention en cours de frappe (« @co… ») n'est pas encore une erreur. */}
+      {unknown.length > 0 && agents.length > 0 && (
+        <p className="muted small">Agent(s) inconnu(s) dans ce dossier, ignoré(s) : {unknown.map((a) => `@${a}`).join(', ')}</p>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, Users, X, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
@@ -12,6 +12,7 @@ import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionTable } from './MissionTable';
 import { MissionView } from './MissionView';
+import { NewMissionPage } from './NewMissionPage';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -47,7 +48,6 @@ const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors' 
 export function Dashboard({ email }: { email: string }) {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [composing, setComposing] = useState(false);
   const [page, setPage] = useState<Page>({ kind: 'overview' });
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +131,6 @@ export function Dashboard({ email }: { email: string }) {
   }, [agents, missions]);
 
   const openMission = (m: Mission) => {
-    setComposing(false);
     navigate({ kind: 'mission', id: m.id });
   };
 
@@ -167,15 +166,17 @@ export function Dashboard({ email }: { email: string }) {
           onSignOut={() => getSupabase().auth.signOut()}
         />
       <main className="main">
-        <div className="page-title">
-          <h1>{title}</h1>
-          {page.kind === 'overview' && (
-            <button className="primary-btn" onClick={() => setComposing(true)}>
-              <Plus size={16} strokeWidth={2.25} />
-              Nouvelle mission
-            </button>
-          )}
-        </div>
+        {page.kind !== 'new-mission' && (
+          <div className="page-title">
+            <h1>{title}</h1>
+            {page.kind === 'overview' && (
+              <button className="primary-btn" onClick={() => navigate({ kind: 'new-mission' })}>
+                <Plus size={16} strokeWidth={2.25} />
+                Nouvelle mission
+              </button>
+            )}
+          </div>
+        )}
         {error && <p className="error banner">{error}</p>}
 
         {page.kind === 'overview' && (
@@ -199,6 +200,8 @@ export function Dashboard({ email }: { email: string }) {
           </div>
         )}
 
+        {page.kind === 'new-mission' && <NewMissionPage workspaces={workspaces} email={email} onCreated={openMission} />}
+
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
 
         {page.kind === 'agents' && <AgentLibrary agents={agents} agentLoad={agentLoad} onNavigate={navigate} />}
@@ -213,19 +216,6 @@ export function Dashboard({ email }: { email: string }) {
       </main>
       </div>
 
-      {composing && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-mission-title" onClick={() => setComposing(false)}>
-          <div className="card modal new-mission" onClick={(e) => e.stopPropagation()}>
-            <div className="new-mission-head">
-              <h2 id="new-mission-title">Nouvelle mission</h2>
-              <button className="icon-btn" onClick={() => setComposing(false)} aria-label="Fermer">
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
-            <MissionForm workspaces={workspaces} onCreated={openMission} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

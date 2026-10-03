@@ -446,3 +446,51 @@ button.danger { background: var(--err); }
 .tb-user-text span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-signout { display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 10px; border-radius: 10px; background: none; color: var(--text); }
 .tb-signout:hover { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+
+/* --- Page « Nouvelle mission » --- */
+.welcome { position: relative; min-height: calc(100vh - 160px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 0 40px; }
+.welcome > *:not(.welcome-glow) { position: relative; }
+.welcome-glow {
+  position: absolute; inset: -24px -32px; pointer-events: none;
+  background: radial-gradient(ellipse 50% 42% at 50% 40%, color-mix(in srgb, var(--glow) 16%, transparent), transparent 72%);
+}
+.welcome-logo {
+  width: 56px; height: 56px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 16px;
+  color: #fff; background: linear-gradient(160deg, color-mix(in srgb, var(--glow) 70%, #fff), var(--accent) 55%, #2c1f86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 0 0 1px color-mix(in srgb, var(--glow) 50%, transparent), 0 10px 40px -6px color-mix(in srgb, var(--glow) 75%, transparent);
+}
+.welcome-logo .logo-mark { width: 30px; height: 30px; }
+.welcome-title { margin: 0; font-size: 28px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+.welcome-sub { margin: 10px 0 28px; color: var(--muted); font-size: 13.5px; }
+.composer { width: min(720px, 100%); display: grid; gap: 10px; text-align: left; }
+.composer-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px; font-size: 12.5px; color: var(--muted); }
+.composer-select { display: inline-flex; align-items: center; gap: 6px; }
+.composer-select select { width: auto; padding: 2px 4px; border: 0; background: none; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.composer-select select:hover { color: var(--text); }
+.composer-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; user-select: none; }
+.composer-toggle input { display: none; }
+.composer-toggle.on { color: color-mix(in srgb, var(--glow) 75%, var(--text)); border-color: color-mix(in srgb, var(--glow) 60%, var(--border)); background: color-mix(in srgb, var(--glow) 12%, transparent); }
+.composer-box {
+  position: relative; display: flex; align-items: flex-end; gap: 10px; padding: 12px 12px 12px 16px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 20px 50px -20px rgba(0, 0, 0, .55);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.composer-box:focus-within { border-color: color-mix(in srgb, var(--glow) 55%, var(--border)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow) 14%, transparent), 0 20px 50px -20px rgba(0, 0, 0, .55); }
+.composer-box .agent-prompt { flex: 1; min-width: 0; }
+.composer-box textarea { border: 0; background: none; padding: 6px 0; resize: none; outline: none; font-size: 15px; line-height: 1.5; }
+.composer-box .chain { padding-bottom: 4px; }
+.composer-send {
+  flex: none; width: 38px; height: 38px; padding: 0; display: grid; place-items: center; border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--glow) 88%, #fff), var(--accent));
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--glow) 80%, transparent);
+}
+.composer-send:disabled { opacity: .35; box-shadow: none; }
+.composer-note { margin: 0; padding: 0 4px; font-size: 12.5px; color: var(--muted); }
+.suggestions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.suggestion {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--muted); border: 1px solid var(--border); font-size: 13px;
+}
+.suggestion:hover { color: var(--text); border-color: color-mix(in srgb, var(--glow) 55%, var(--border)); }
+.suggestion svg { color: color-mix(in srgb, var(--glow) 70%, var(--text)); }
