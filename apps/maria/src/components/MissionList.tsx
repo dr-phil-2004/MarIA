@@ -1,6 +1,7 @@
 'use client';
 
 import type { Mission, MissionStatus } from '@/lib/types';
+import { MissionBadge } from './StatusBadge';
 
 export const STATUS_LABEL: Record<MissionStatus, string> = {
   queued: 'En attente',
@@ -24,7 +25,7 @@ export function MissionList({ missions, selectedId, onSelect }: Props) {
       {missions.map((m) => (
         <li key={m.id}>
           <button className={`mission-item ${m.id === selectedId ? 'active' : ''}`} onClick={() => onSelect(m.id)}>
-            <span className={`badge ${m.status}`}>{STATUS_LABEL[m.status]}</span>
+            <MissionBadge status={m.status} small />
             <span className="mission-title">{m.prompt}</span>
             <span className="muted small">
               {m.workspace}

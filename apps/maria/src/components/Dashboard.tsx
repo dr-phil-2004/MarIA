@@ -1,16 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, Bot, Plug, Ticket, Users, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bell, Bot, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { Mission, Workspace } from '@/lib/types';
+import { ActivityHeatmap } from './ActivityHeatmap';
 import { AgentLibrary } from './AgentLibrary';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
-import { MissionList } from './MissionList';
+import { MissionTable } from './MissionTable';
 import { MissionView } from './MissionView';
+import { NewMissionPage } from './NewMissionPage';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -21,12 +23,15 @@ const WORKSPACE_REFRESH_MS = 30_000;
 function pageFromHash(hash: string): Page {
   const [, section, rest] = hash.replace(/^#\/?/, '/').split('/');
   if (section === 'agents' && rest) return { kind: 'agent', name: decodeURIComponent(rest) };
-  if (section && section in NAV_LABEL) return { kind: section as Exclude<Page['kind'], 'agent'> };
+  if (section === 'missions' && rest) return { kind: 'mission', id: decodeURIComponent(rest) };
+  if (section && section in NAV_LABEL) return { kind: section as Exclude<Page['kind'], 'agent' | 'mission'> } as Page;
   return { kind: 'overview' };
 }
 
 function hashFromPage(page: Page): string {
-  return page.kind === 'agent' ? `#/agents/${encodeURIComponent(page.name)}` : `#/${page.kind}`;
+  if (page.kind === 'agent') return `#/agents/${encodeURIComponent(page.name)}`;
+  if (page.kind === 'mission') return `#/missions/${encodeURIComponent(page.id)}`;
+  return `#/${page.kind}`;
 }
 
 const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
@@ -43,7 +48,6 @@ const PLACEHOLDERS: Record<'teams' | 'tickets' | 'notifications' | 'connectors' 
 export function Dashboard({ email }: { email: string }) {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [page, setPage] = useState<Page>({ kind: 'overview' });
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -126,13 +130,19 @@ export function Dashboard({ email }: { email: string }) {
     return load;
   }, [agents, missions]);
 
-  const selected = missions.find((m) => m.id === selectedId) ?? null;
   const openMission = (m: Mission) => {
-    setSelectedId(m.id);
-    navigate({ kind: 'overview' });
+    navigate({ kind: 'mission', id: m.id });
   };
 
-  const title = page.kind === 'agent' ? page.name : NAV_LABEL[page.kind];
+  const opened = page.kind === 'mission' ? (missions.find((m) => m.id === page.id) ?? null) : null;
+  const title =
+    page.kind === 'agent'
+      ? page.name
+      : page.kind === 'mission'
+        ? opened
+          ? opened.prompt.split('\n')[0].slice(0, 70) + (opened.prompt.length > 70 ? '…' : '')
+          : 'Mission'
+        : NAV_LABEL[page.kind];
 
   return (
     <div className="app">
@@ -141,38 +151,56 @@ export function Dashboard({ email }: { email: string }) {
         onNavigate={navigate}
         agents={agents}
         agentLoad={agentLoad}
-        email={email}
         notificationCount={pendingCount}
-        onSignOut={() => getSupabase().auth.signOut()}
       />
       <PermissionPrompt missions={missions} onCountChange={setPendingCount} />
-      <main className="main">
+      <div className="workspace">
         <TopBar
-          title={title}
           agents={agents}
           missions={missions}
           dark={theme === 'dark'}
           onToggleDark={toggleTheme}
           onNavigate={navigate}
           onOpenMission={openMission}
+          email={email}
+          onSignOut={() => getSupabase().auth.signOut()}
         />
+      <main className="main">
+        {page.kind !== 'new-mission' && (
+          <div className="page-title">
+            <h1>{title}</h1>
+            {page.kind === 'overview' && (
+              <button className="primary-btn" onClick={() => navigate({ kind: 'new-mission' })}>
+                <Plus size={16} strokeWidth={2.25} />
+                Nouvelle mission
+              </button>
+            )}
+          </div>
+        )}
         {error && <p className="error banner">{error}</p>}
 
         {page.kind === 'overview' && (
           <div className="overview">
-            <section className="overview-side">
-              <MissionForm workspaces={workspaces} onCreated={openMission} />
-              <MissionList missions={missions} selectedId={selectedId} onSelect={setSelectedId} />
-            </section>
-            <section className="overview-main">
-              {selected ? (
-                <MissionView key={selected.id} mission={selected} onFollowUp={openMission} />
-              ) : (
-                <p className="muted empty">Lance une mission ou sélectionne-en une dans la liste.</p>
-              )}
-            </section>
+            <ActivityHeatmap refreshKey={missions.length} />
+            <MissionTable missions={missions} agentNames={agents.map((a) => a.name)} onOpen={openMission} />
           </div>
         )}
+
+        {page.kind === 'mission' && (
+          <div className="mission-page">
+            <button className="back-link" onClick={() => navigate({ kind: 'overview' })}>
+              <ArrowLeft size={16} strokeWidth={2} />
+              Overview
+            </button>
+            {opened ? (
+              <MissionView key={opened.id} mission={opened} agents={agents} email={email} onFollowUp={openMission} />
+            ) : (
+              <p className="muted">Mission introuvable parmi les 50 plus récentes.</p>
+            )}
+          </div>
+        )}
+
+        {page.kind === 'new-mission' && <NewMissionPage workspaces={workspaces} email={email} onCreated={openMission} />}
 
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
 
@@ -186,6 +214,8 @@ export function Dashboard({ email }: { email: string }) {
           <Placeholder {...PLACEHOLDERS[page.kind]} />
         )}
       </main>
+      </div>
+
     </div>
   );
 }

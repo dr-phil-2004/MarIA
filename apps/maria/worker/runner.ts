@@ -6,7 +6,7 @@ import { mentionName, parseMentions } from '../src/lib/mentions';
 import type { Mission, MissionStatus, StreamEvent, ToolUseBlock } from '../src/lib/types';
 import { listAgents } from './agents';
 import type { WorkerConfig } from './config';
-import { diffSnapshots, fileFromToolUse, snapshotDirty } from './files';
+import { diffSnapshots, fileFromToolUse, fileStats, snapshotDirty } from './files';
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
@@ -325,6 +325,17 @@ export async function runMission(
     files_changed: files,
     finished_at: new Date().toISOString(),
   });
+
+  // Lignes ajoutées / supprimées par fichier (vue « Fichiers modifiés »), sans bloquer la fin de mission.
+  if (files.length > 0) {
+    try {
+      const stats = await fileStats(cwd, files, worktree?.baseCommit || null);
+      await store.update(mission.id, { file_stats: stats });
+    } catch (err) {
+      const hint = /file_stats/.test((err as Error).message) ? ' — applique la migration supabase/migrations/0008_file_stats.sql' : '';
+      console.error(`[maria] statistiques de fichiers indisponibles pour ${mission.id} : ${(err as Error).message}${hint}`);
+    }
+  }
 
   // Instantané du registre Ruflo, après coup pour ne pas retarder la fin de mission.
   if (usedRuflo && cfg.rufloCmd) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
-import { Bell, Brain, House, LogOut, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
+import { Bell, Brain, House, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 import { AgentAvatar, LoadBars, loadLevel, loadTitle } from './AgentAvatar';
 
@@ -14,9 +14,11 @@ export type Page =
   | { kind: 'connectors' }
   | { kind: 'agents' }
   | { kind: 'new-agent' }
-  | { kind: 'agent'; name: string };
+  | { kind: 'new-mission' }
+  | { kind: 'agent'; name: string }
+  | { kind: 'mission'; id: string };
 
-type StaticKind = Exclude<Page['kind'], 'agent'>;
+type StaticKind = Exclude<Page['kind'], 'agent' | 'mission'>;
 
 interface NavItem {
   kind: StaticKind;
@@ -33,6 +35,7 @@ export const NAV_LABEL: Record<StaticKind, string> = {
   connectors: 'Connecteurs',
   agents: 'Bibliothèque d’agents',
   'new-agent': 'Nouvel agent',
+  'new-mission': 'Nouvelle mission',
 };
 
 export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
@@ -53,7 +56,7 @@ export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
 const SIDEBAR_AGENTS = 4;
 const COLLAPSED_KEY = 'maria.sidebarCollapsed';
 
-function Logo() {
+export function Logo() {
   return (
     <svg className="logo-mark" viewBox="0 0 28 28" aria-hidden="true">
       <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
@@ -73,13 +76,11 @@ interface Props {
   agents: AgentInfo[];
   /** Nombre de missions récentes où chaque agent a été mentionné (@agent). */
   agentLoad: Record<string, number>;
-  email: string;
   notificationCount: number;
-  onSignOut: () => void;
 }
 
-/** Barre latérale : navigation principale, agents les plus sollicités et déconnexion. */
-export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificationCount, onSignOut }: Props) {
+/** Barre latérale : navigation principale et agents les plus sollicités. */
+export function Sidebar({ page, onNavigate, agents, agentLoad, notificationCount }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
   // Préférence mémorisée dans le navigateur ; sans stockage, la barre reste dépliée.
@@ -111,8 +112,9 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificati
   }
   const more = sorted.length - shown.length;
 
-  const isActive = (p: Page) => p.kind === page.kind && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
-  const initial = (email[0] ?? '?').toUpperCase();
+  // Une mission ouverte reste rattachée à Overview dans la navigation.
+  const current: Page['kind'] = page.kind === 'mission' || page.kind === 'new-mission' ? 'overview' : page.kind;
+  const isActive = (p: Page) => p.kind === current && (p.kind !== 'agent' || (page.kind === 'agent' && page.name === p.name));
 
   return (
     <nav className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Navigation principale">
@@ -192,21 +194,6 @@ export function Sidebar({ page, onNavigate, agents, agentLoad, email, notificati
         </div>
       </div>
 
-      <div className="sb-foot">
-        <div className="sb-user">
-          <span className="sb-avatar" aria-hidden="true">
-            {initial}
-          </span>
-          <span className="sb-label sb-user-text">
-            <strong>{email.split('@')[0]}</strong>
-            <span>{email}</span>
-          </span>
-        </div>
-        <button className="sb-signout" onClick={onSignOut} title="Se déconnecter">
-          <LogOut size={18} strokeWidth={1.75} />
-          <span className="sb-label">Sign out</span>
-        </button>
-      </div>
     </nav>
   );
 }

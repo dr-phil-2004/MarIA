@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Moon, Search, Sun } from 'lucide-react';
+import { ChevronDown, LogOut, Moon, Search, Sun } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 import type { Mission } from '@/lib/types';
 import { AgentAvatar } from './AgentAvatar';
@@ -15,17 +15,18 @@ type Result =
   | { type: 'mission'; key: string; label: string; detail: string; mission: Mission };
 
 interface Props {
-  title: string;
   agents: AgentInfo[];
   missions: Mission[];
   dark: boolean;
   onToggleDark: () => void;
   onNavigate: (page: Page) => void;
   onOpenMission: (mission: Mission) => void;
+  email: string;
+  onSignOut: () => void;
 }
 
-/** En-tête des pages : titre à gauche ; recherche (pages, agents, missions) et bascule clair/sombre à droite. */
-export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate, onOpenMission }: Props) {
+/** En-tête commun à toutes les pages : recherche au centre ; bascule clair/sombre et profil (avec déconnexion) à droite. */
+export function TopBar({ agents, missions, dark, onToggleDark, onNavigate, onOpenMission, email, onSignOut }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -84,9 +85,8 @@ export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate
 
   return (
     <header className="topbar">
-      <h1>{title}</h1>
-      <div className="topbar-actions">
-        <div className="tb-search-wrap">
+      <div className="tb-side" />
+      <div className="tb-search-wrap">
           <label className="tb-search">
             <Search size={16} strokeWidth={1.75} />
             <input
@@ -128,7 +128,8 @@ export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate
               ))}
             </ul>
           )}
-        </div>
+      </div>
+      <div className="tb-side tb-end">
         <button
           className="tb-toggle"
           onClick={onToggleDark}
@@ -137,7 +138,58 @@ export function TopBar({ title, agents, missions, dark, onToggleDark, onNavigate
         >
           {dark ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
         </button>
+        <UserMenu email={email} onSignOut={onSignOut} />
       </div>
     </header>
+  );
+}
+
+/** Profil : un clic ouvre un menu avec l'adresse e-mail et la déconnexion. */
+function UserMenu({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const name = email.split('@')[0];
+  return (
+    <div className="tb-user" ref={ref}>
+      <button className={`tb-user-btn ${open ? 'open' : ''}`} onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} title={email}>
+        <span className="tb-avatar" aria-hidden="true">
+          {(email[0] ?? '?').toUpperCase()}
+        </span>
+        <span className="tb-user-name">{name}</span>
+        <ChevronDown size={16} strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="tb-user-menu" role="menu">
+          <div className="tb-user-info">
+            <span className="tb-avatar" aria-hidden="true">
+              {(email[0] ?? '?').toUpperCase()}
+            </span>
+            <span className="tb-user-text">
+              <strong>{name}</strong>
+              <span>{email}</span>
+            </span>
+          </div>
+          <button className="tb-signout" role="menuitem" onClick={onSignOut}>
+            <LogOut size={16} strokeWidth={1.9} />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -19,6 +19,8 @@ export interface Mission {
   result: string | null;
   error: string | null;
   files_changed: string[];
+  /** Lignes ajoutées / supprimées par fichier (null si binaire), calculées en fin de mission. */
+  file_stats?: Record<string, [number, number] | null> | null;
   cost_usd: number | null;
   ruflo_agents: RufloAgent[] | null;
   use_worktree: boolean;

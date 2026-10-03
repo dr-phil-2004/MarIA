@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -70,4 +70,36 @@ export function fileFromToolUse(cwd: string, name: string, input: Record<string,
   if (typeof target !== 'string') return null;
   const rel = path.relative(cwd, path.resolve(cwd, target));
   return rel.startsWith('..') ? target : rel;
+}
+
+/** Lignes ajoutées / supprimées par fichier ; null pour un fichier binaire. */
+export type FileStats = Record<string, [number, number] | null>;
+
+/**
+ * Statistiques de diff des fichiers modifiés : par rapport à `base` (commit de départ d'un worktree)
+ * ou, sur place, entre HEAD et l'arbre de travail. Un nouveau fichier non suivi compte toutes ses lignes en ajout.
+ */
+export async function fileStats(cwd: string, files: string[], base: string | null): Promise<FileStats> {
+  if (files.length === 0) return {};
+  const raw = await git(cwd, ['diff', '--numstat', '--relative', base ? `${base}..HEAD` : 'HEAD']).catch(() => '');
+  const byPath = new Map<string, [number, number] | null>();
+  for (const line of raw.split('\n')) {
+    const [add, del, ...rest] = line.split('\t');
+    const p = rest.join('\t');
+    if (!p) continue;
+    byPath.set(p, add === '-' ? null : [Number(add), Number(del)]);
+  }
+  const stats: FileStats = {};
+  for (const f of files) {
+    if (byPath.has(f)) {
+      stats[f] = byPath.get(f) ?? null;
+      continue;
+    }
+    const abs = path.resolve(cwd, f);
+    if (existsSync(abs) && statSync(abs).isFile() && statSync(abs).size < 5 * 1024 * 1024) {
+      const text = readFileSync(abs, 'utf8');
+      stats[f] = text.includes('\0') ? null : [text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0, 0];
+    }
+  }
+  return stats;
 }
