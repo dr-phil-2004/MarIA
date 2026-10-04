@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bot, Plug, Plus, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bot, Plus, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import { FINISHED_STATUSES, type Mission, type Workspace } from '@/lib/types';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { AgentLibrary } from './AgentLibrary';
+import { ConnectorsPage } from './ConnectorsPage';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionTable } from './MissionTable';
@@ -38,8 +39,7 @@ function hashFromPage(page: Page): string {
   return `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
-  connectors: { icon: Plug, text: 'La gestion des connecteurs arrive bientôt.' },
+const PLACEHOLDERS: Record<'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
   'new-agent': {
     icon: Bot,
     text: 'La création d’agents depuis MarIA arrive bientôt. En attendant, un agent est un fichier Markdown dans .claude/agents/ du dossier : il apparaît ici au prochain passage du worker.',
@@ -246,9 +246,9 @@ export function Dashboard({ email }: { email: string }) {
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
         )}
 
-        {(page.kind === 'connectors' || page.kind === 'new-agent') && (
-          <Placeholder {...PLACEHOLDERS[page.kind]} />
-        )}
+        {page.kind === 'connectors' && <ConnectorsPage workspaces={workspaces} agents={agents} />}
+
+        {page.kind === 'new-agent' && <Placeholder {...PLACEHOLDERS[page.kind]} />}
       </main>
       </div>
 
