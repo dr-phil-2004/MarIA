@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseAgentDef } from '../src/lib/agent-def';
 import type { AgentInfo } from '../src/lib/mentions';
 
 const BUILTIN: AgentInfo[] = [
@@ -18,21 +19,13 @@ function markdownFiles(dir: string): string[] {
     .map((e) => path.join(e.parentPath, e.name));
 }
 
-function unquote(value: string): string {
-  return value.trim().replace(/^(['"])(.*)\1$/, '$2');
-}
-
 /** Lit `name` et `description` dans l'en-tête YAML d'une définition d'agent. */
 export function parseAgentFile(text: string): AgentInfo | null {
-  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!header) return null;
-  const field = (key: string) => new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(header[1])?.[1];
-  const name = unquote(field('name') ?? '');
+  const def = parseAgentDef(text);
+  if (!def) return null;
   // Les espaces sont acceptés (« Benchmark Suite » se mentionne @Benchmark-Suite).
-  if (!/^[A-Za-z0-9][\w -]*$/.test(name)) return null;
-  const raw = unquote(field('description') ?? '');
-  const description = /^[|>]/.test(raw) ? '' : raw;
-  return { name, description: description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION)}…` : description };
+  const description = def.description.replace(/\s+/g, ' ').trim();
+  return { name: def.name, description: description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION)}…` : description };
 }
 
 /** Agents utilisables dans `cwd` ; une définition du projet l'emporte sur celle de l'utilisateur et sur les intégrés. */

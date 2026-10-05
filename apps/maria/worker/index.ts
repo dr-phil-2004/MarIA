@@ -1,6 +1,7 @@
 // Worker MarIA : récupère les missions en attente dans Supabase et les exécute avec Claude Code.
 // Lancement : npm run worker (depuis apps/maria, avec .env.local rempli).
 import { runWorktreeAction } from './actions';
+import { applyAgentOp, syncAgentFiles } from './agent-studio';
 import { listAgents } from './agents';
 import { connectorEnvNames } from './connectors';
 import { computeHealth } from './health';
@@ -35,6 +36,23 @@ async function main(): Promise<void> {
   const register = async () => {
     if (Date.now() - healthAt > HEALTH_MS) await refreshHealth().catch(() => undefined);
     await store.registerWorkspaces(names.map((name) => ({ name, agents: listAgents(cfg.workspaces[name]), health: health.get(name) ?? null })));
+    for (const name of names) {
+      await syncAgentFiles(store, name, cfg.workspaces[name]).catch((err: Error) => console.error(`[maria] agents ${name} : ${err.message}`));
+    }
+  };
+  // Créations, modifications et suppressions d'agents demandées depuis l'atelier.
+  const runAgentOps = async () => {
+    const ops = await store.pendingAgentOps(names);
+    for (const op of ops) {
+      try {
+        console.log(`[maria] ${applyAgentOp(op, cfg.workspaces[op.workspace])}`);
+        await store.finishAgentOp(op.id, null);
+      } catch (err) {
+        console.error(`[maria] atelier d'agents (${op.workspace}) : ${(err as Error).message}`);
+        await store.finishAgentOp(op.id, (err as Error).message);
+      }
+    }
+    if (ops.length > 0) await register();
   };
   await register();
   const orphans = await store.failOrphans(names);
@@ -104,6 +122,7 @@ async function main(): Promise<void> {
     if (polling || shutdown.signal.aborted) return;
     polling = true;
     try {
+      await runAgentOps().catch((err: Error) => console.error(`[maria] atelier d'agents : ${err.message}`));
       // Fusions et abandons demandés : ils touchent le dossier principal, donc exclusifs avec les missions sur place.
       for (const mission of await store.pendingWorktreeActions(names.filter((n) => !mainBusy.has(n)))) {
         if (mainBusy.has(mission.workspace)) continue;
