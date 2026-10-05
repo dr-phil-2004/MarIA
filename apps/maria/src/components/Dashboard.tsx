@@ -1,18 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bell, Bot, Plug, Plus, type LucideProps } from 'lucide-react';
+import { ArrowLeft, Bot, Plus, type LucideProps } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
-import type { Mission, Workspace } from '@/lib/types';
+import { FINISHED_STATUSES, type Mission, type Workspace } from '@/lib/types';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { AgentLibrary } from './AgentLibrary';
+import { ConnectorsPage } from './ConnectorsPage';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
 import { MissionTable } from './MissionTable';
 import { MissionView } from './MissionView';
 import { NewMissionPage } from './NewMissionPage';
+import { NotifCard } from './NotifCard';
+import { NotificationsPage } from './NotificationsPage';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
 import { TeamsPage } from './TeamsPage';
@@ -36,9 +39,7 @@ function hashFromPage(page: Page): string {
   return `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'notifications' | 'connectors' | 'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
-  notifications: { icon: Bell, text: 'Les demandes d’autorisation et les questions des agents s’affichent en fenêtre dès qu’elles arrivent. L’historique des notifications arrive bientôt.' },
-  connectors: { icon: Plug, text: 'La gestion des connecteurs arrive bientôt.' },
+const PLACEHOLDERS: Record<'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
   'new-agent': {
     icon: Bot,
     text: 'La création d’agents depuis MarIA arrive bientôt. En attendant, un agent est un fichier Markdown dans .claude/agents/ du dossier : il apparaît ici au prochain passage du worker.',
@@ -51,6 +52,15 @@ export function Dashboard({ email }: { email: string }) {
   const [page, setPage] = useState<Page>({ kind: 'overview' });
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<Mission[]>([]);
+  const dismissToast = useCallback((id: string) => setToasts((all) => all.filter((t) => t.id !== id)), []);
+  const pushToast = useCallback(
+    (m: Mission) => {
+      setToasts((all) => [m, ...all.filter((t) => t.id !== m.id)].slice(0, 3));
+      setTimeout(() => dismissToast(m.id), 9000);
+    },
+    [dismissToast],
+  );
   const [theme, toggleTheme] = useTheme();
 
   useEffect(() => {
@@ -70,6 +80,9 @@ export function Dashboard({ email }: { email: string }) {
 
     const upsert = (row: Mission) =>
       setMissions((prev) => {
+        const before = prev.find((m) => m.id === row.id);
+        // Toast quand une mission suivie en direct se termine (pas au chargement initial).
+        if (before && !FINISHED_STATUSES.includes(before.status) && FINISHED_STATUSES.includes(row.status)) pushToast(row);
         const rest = prev.filter((m) => m.id !== row.id);
         return [row, ...rest].sort((a, b) => b.created_at.localeCompare(a.created_at));
       });
@@ -212,6 +225,8 @@ export function Dashboard({ email }: { email: string }) {
           <NewMissionPage key={page.prompt ?? ''} workspaces={workspaces} email={email} onCreated={openMission} initialPrompt={page.prompt} />
         )}
 
+        {page.kind === 'notifications' && <NotificationsPage missions={missions} onOpenMission={openMission} />}
+
         {page.kind === 'tickets' && <TicketsPage agents={agents} workspaces={workspaces} missions={missions} onOpenMission={openMission} />}
 
         {page.kind === 'teams' && (
@@ -231,11 +246,38 @@ export function Dashboard({ email }: { email: string }) {
           <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
         )}
 
-        {(page.kind === 'notifications' || page.kind === 'connectors' || page.kind === 'new-agent') && (
-          <Placeholder {...PLACEHOLDERS[page.kind]} />
-        )}
+        {page.kind === 'connectors' && <ConnectorsPage workspaces={workspaces} agents={agents} />}
+
+        {page.kind === 'new-agent' && <Placeholder {...PLACEHOLDERS[page.kind]} />}
       </main>
       </div>
+
+      {toasts.length > 0 && (
+        <div className="toasts" aria-live="polite">
+          {toasts.map((m) => (
+            <NotifCard
+              key={m.id}
+              compact
+              tone={m.status === 'completed' ? 'success' : m.status === 'failed' ? 'error' : 'warning'}
+              title={m.status === 'completed' ? 'Mission terminée !' : m.status === 'failed' ? 'La mission a échoué' : 'Mission annulée'}
+              onClose={() => dismissToast(m.id)}
+              actions={
+                <button
+                  className="primary"
+                  onClick={() => {
+                    dismissToast(m.id);
+                    openMission(m);
+                  }}
+                >
+                  Voir la mission
+                </button>
+              }
+            >
+              <p>« {m.prompt.length > 90 ? `${m.prompt.slice(0, 90)}…` : m.prompt} »</p>
+            </NotifCard>
+          ))}
+        </div>
+      )}
 
     </div>
   );

@@ -10,6 +10,7 @@ import { diffSnapshots, fileFromToolUse, fileStats, snapshotDirty } from './file
 import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
+import { connectorPlan, type ConnectorPlan, type McpServer } from './connectors';
 import { pushAndOpenPr } from './github';
 import { commitWorktree, createWorktree, isGitRepo, slugify, worktreeCwd, type WorktreeInfo } from './worktree';
 
@@ -43,17 +44,13 @@ function headlessNote(cwd: string, interactive: boolean, branch: string | null, 
   ].join('\n');
 }
 
-/** Déclare le serveur MCP de permissions (worker/permission-mcp.ts), lancé par Claude Code. */
-function permissionMcpConfig(cfg: WorkerConfig, missionId: string): string {
-  return JSON.stringify({
-    mcpServers: {
-      [SERVER_NAME]: {
-        command: process.execPath,
-        args: [path.join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(__dirname, 'permission-mcp.ts')],
-        env: { MARIA_MISSION_ID: missionId, MARIA_PERMISSION_TIMEOUT_MS: String(cfg.permissionTimeoutMs) },
-      },
-    },
-  });
+/** Serveur MCP de permissions (worker/permission-mcp.ts), lancé par Claude Code. */
+function permissionServer(cfg: WorkerConfig, missionId: string): McpServer {
+  return {
+    command: process.execPath,
+    args: [path.join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(__dirname, 'permission-mcp.ts')],
+    env: { MARIA_MISSION_ID: missionId, MARIA_PERMISSION_TIMEOUT_MS: String(cfg.permissionTimeoutMs) },
+  };
 }
 
 /** Hook PreToolUse (worker/agent-guard.ts) qui bloque les sous-agents non mentionnés dans une mission en chaîne. */
@@ -71,18 +68,22 @@ function buildArgs(
   resumeSessionId: string | null,
   branch: string | null,
   chain: string[],
+  connectors: ConnectorPlan,
 ): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
   args.push('--append-system-prompt', headlessNote(cwd, cfg.interactivePermissions, branch, chain));
   if (chain.length > 0) args.push('--settings', chainGuardSettings());
-  if (cfg.interactivePermissions) {
-    args.push('--mcp-config', permissionMcpConfig(cfg, missionId), '--permission-prompt-tool', PERMISSION_TOOL);
-  }
+  // Serveurs MCP : autorisations MarIA + connecteurs activés dans la page Connecteurs.
+  const servers: Record<string, McpServer> = { ...connectors.servers };
+  if (cfg.interactivePermissions) servers[SERVER_NAME] = permissionServer(cfg, missionId);
+  if (Object.keys(servers).length > 0) args.push('--mcp-config', JSON.stringify({ mcpServers: servers }));
+  if (cfg.interactivePermissions) args.push('--permission-prompt-tool', PERMISSION_TOOL);
   // Les questions (AskUserQuestion) s'affichent dans MarIA via le serveur de permissions ; sans lui, personne ne
   // peut y répondre : l'agent doit alors poser ses questions en texte (réponse via « Continuer »).
   if (!cfg.interactivePermissions) args.push('--disallowedTools', 'AskUserQuestion');
-  if (cfg.allowedTools.length > 0) args.push('--allowedTools', cfg.allowedTools.join(','));
+  const allowed = [...new Set([...cfg.allowedTools, ...connectors.allowed])];
+  if (allowed.length > 0) args.push('--allowedTools', allowed.join(','));
   if (cfg.model) args.push('--model', cfg.model);
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   return args;
@@ -203,6 +204,9 @@ export async function runMission(
   const { agents: chain, unknown } = parseMentions(mission.prompt, listAgents(cwd).map((a) => a.name));
   if (unknown.length > 0) sink.info(`Agent(s) inconnu(s) dans ce dossier, ignoré(s) : ${unknown.map((a) => `@${a}`).join(', ')}`, 'warn');
   if (chain.length > 0) sink.info(`Chaîne d’agents : ${chain.map((a) => `@${mentionName(a)}`).join(' → ')} (les autres sous-agents sont bloqués)`);
+  const connectors = await connectorPlan(store, chain).catch(() => ({ servers: {}, allowed: [], loaded: [], notes: [] }) as ConnectorPlan);
+  if (connectors.loaded.length > 0) sink.info(`Connecteurs : ${connectors.loaded.join(', ')}`);
+  for (const note of connectors.notes) sink.info(note, 'warn');
   const resumeSessionId = await resolveResume(store, mission, sink, cfg, cwd);
   const before = await snapshotDirty(cwd).catch(() => null);
   const toolFiles = new Set<string>();
@@ -212,7 +216,7 @@ export async function runMission(
   let cancelled = false;
   let usedRuflo = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null, chain), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null, chain, connectors), {
     cwd,
     // Laisse au serveur de permissions le temps d'attendre la décision de l'utilisateur.
     env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000), MARIA_CHAIN_AGENTS: chain.join(',') },

@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { ConnectorConfig, WorkerHealth } from '../src/lib/connectors';
 import type { AgentInfo } from '../src/lib/mentions';
 import type { MemoryEntry, Mission, MissionStatus, StreamEvent, Ticket } from '../src/lib/types';
 
@@ -23,11 +24,18 @@ export class Store {
     this.db = createClient(url, serviceRoleKey, { auth: { persistSession: false }, db: { schema: 'maria' } });
   }
 
-  async registerWorkspaces(workspaces: Array<{ name: string; agents: AgentInfo[] }>): Promise<void> {
+  private healthColumn = true;
+
+  async registerWorkspaces(workspaces: Array<{ name: string; agents: AgentInfo[]; health?: WorkerHealth | null }>): Promise<void> {
     const now = new Date().toISOString();
-    const { error } = await this.db
-      .from('workspaces')
-      .upsert(workspaces.map(({ name, agents }) => ({ name, agents, last_seen_at: now })));
+    const rows = workspaces.map(({ name, agents, health }) => ({ name, agents, last_seen_at: now, ...(this.healthColumn && health ? { health } : {}) }));
+    let { error } = await this.db.from('workspaces').upsert(rows);
+    // Sans la migration 0011, la colonne health n'existe pas : on continue sans l'état du worker.
+    if (error && /health/.test(error.message)) {
+      this.healthColumn = false;
+      console.warn('[maria] colonne workspaces.health absente : applique supabase/migrations/0011_connectors.sql pour la page Connecteurs.');
+      ({ error } = await this.db.from('workspaces').upsert(rows.map(({ name, agents, last_seen_at }) => ({ name, agents, last_seen_at }))));
+    }
     if (error && /agents/.test(error.message)) {
       throw new Error(`registerWorkspaces: ${error.message} — applique la migration supabase/migrations/0006_workspace_agents.sql`);
     }
@@ -115,6 +123,19 @@ export class Store {
   async updateWorktree(worktreePath: string, patch: Partial<Mission>): Promise<void> {
     const { error } = await this.db.from('missions').update(patch).eq('worktree_path', worktreePath);
     if (error) throw new Error(`updateWorktree: ${error.message}`);
+  }
+
+  /** Connecteurs configurés dans MarIA ; aucun si la migration 0011 n'est pas appliquée. */
+  async listConnectors(): Promise<ConnectorConfig[]> {
+    const { data, error } = await this.db.from('connectors').select('*');
+    if (error) return [];
+    return data as ConnectorConfig[];
+  }
+
+  async getSetting<T>(key: string): Promise<T | null> {
+    const { data, error } = await this.db.from('settings').select('value').eq('key', key).maybeSingle();
+    if (error || !data) return null;
+    return (data as { value: T }).value;
   }
 
   async getTicket(id: string): Promise<Ticket | null> {

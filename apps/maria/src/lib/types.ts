@@ -1,4 +1,5 @@
 // Types partagés entre le front et le worker (miroir du schéma SQL).
+import type { WorkerHealth } from './connectors';
 import type { AgentInfo } from './mentions';
 
 export type MissionStatus =
@@ -61,6 +62,8 @@ export interface Workspace {
   last_seen_at: string;
   /** Agents disponibles dans le dossier (mentions « @agent »), publiés par le worker. */
   agents: AgentInfo[] | null;
+  /** État du worker (versions, GitHub, Ruflo…), publié par le worker. */
+  health?: WorkerHealth | null;
 }
 
 /** Entrée de la mémoire Ruflo (.swarm/memory.db), copiée par le worker. */

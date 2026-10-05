@@ -2,6 +2,8 @@
 // Lancement : npm run worker (depuis apps/maria, avec .env.local rempli).
 import { runWorktreeAction } from './actions';
 import { listAgents } from './agents';
+import { connectorEnvNames } from './connectors';
+import { computeHealth } from './health';
 import { loadConfig } from './config';
 import { MemorySync, sqliteAvailable } from './memory';
 import { runMission } from './runner';
@@ -9,6 +11,7 @@ import { Store } from './store';
 import type { Mission } from '../src/lib/types';
 
 const HEARTBEAT_MS = 30_000;
+const HEALTH_MS = 10 * 60_000;
 
 async function main(): Promise<void> {
   const major = Number(process.versions.node.split('.')[0]);
@@ -20,7 +23,19 @@ async function main(): Promise<void> {
   const names = Object.keys(cfg.workspaces);
 
   // Relu à chaque battement : un agent ajouté dans .claude/agents apparaît dans MarIA sans redémarrer le worker.
-  const register = () => store.registerWorkspaces(names.map((name) => ({ name, agents: listAgents(cfg.workspaces[name]) })));
+  // État de la machine (Claude Code, gh, Ruflo, variables des connecteurs), recalculé toutes les 10 minutes.
+  const health = new Map<string, Awaited<ReturnType<typeof computeHealth>>>();
+  let healthAt = 0;
+  const refreshHealth = async () => {
+    const envNames = connectorEnvNames(await store.listConnectors());
+    for (const name of names) health.set(name, await computeHealth(cfg.claudeBin, cfg.workspaces[name], envNames));
+    healthAt = Date.now();
+  };
+  await refreshHealth().catch((err: Error) => console.error(`[maria] état du worker : ${err.message}`));
+  const register = async () => {
+    if (Date.now() - healthAt > HEALTH_MS) await refreshHealth().catch(() => undefined);
+    await store.registerWorkspaces(names.map((name) => ({ name, agents: listAgents(cfg.workspaces[name]), health: health.get(name) ?? null })));
+  };
   await register();
   const orphans = await store.failOrphans(names);
   if (orphans > 0) console.log(`[maria] ${orphans} mission(s) orpheline(s) marquée(s) en échec`);

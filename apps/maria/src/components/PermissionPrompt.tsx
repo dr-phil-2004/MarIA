@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { describeTool } from '@/lib/feed';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import type { AgentQuestion, Mission, PermissionRequest } from '@/lib/types';
+import { NotifCard } from './NotifCard';
 import { QuestionForm } from './QuestionForm';
 
 const BASE_TITLE = 'MarIA';
@@ -78,51 +79,53 @@ export function PermissionPrompt({ missions, onCountChange }: { missions: Missio
     else setPending((prev) => prev.filter((r) => r.id !== current.id));
   }
 
+  const context = mission ? `« ${mission.prompt.length > 80 ? `${mission.prompt.slice(0, 80)}…` : mission.prompt} » · ${mission.workspace}` : null;
+  const others = pending.length > 1 ? `+${pending.length - 1} autre(s) en attente` : null;
+
   if (questions) {
     return (
-      <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="perm-title">
-        <div className="card modal">
-          <h2 id="perm-title" className="question-title">L’agent a une question</h2>
-          {mission && (
-            <p className="muted small">
-              Mission « {mission.prompt.length > 80 ? `${mission.prompt.slice(0, 80)}…` : mission.prompt} » · {mission.workspace}
-            </p>
-          )}
-          <QuestionForm questions={questions} busy={busy} onAnswer={answer} onSkip={() => decide(false)} />
-          {error && <p className="error small">{error}</p>}
-          {pending.length > 1 && <p className="muted small">+{pending.length - 1} autre(s) demande(s) en attente</p>}
+      <div className="modal-backdrop notif-backdrop" role="dialog" aria-modal="true" aria-labelledby="perm-title">
+        <div className="notif-modal">
+          <NotifCard tone="question" id="perm-title" title="L’agent a une question" meta={others}>
+            {context && <p className="notif-context">Mission {context}</p>}
+            <QuestionForm questions={questions} busy={busy} onAnswer={answer} onSkip={() => decide(false)} />
+            {error && <p className="error small">{error}</p>}
+          </NotifCard>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="perm-title">
-      <div className="card modal">
-        <h2 id="perm-title">Autorisation demandée</h2>
-        {mission && (
-          <p className="muted small">
-            Mission « {mission.prompt.length > 80 ? `${mission.prompt.slice(0, 80)}…` : mission.prompt} » · {mission.workspace}
+    <div className="modal-backdrop notif-backdrop" role="dialog" aria-modal="true" aria-labelledby="perm-title">
+      <div className="notif-modal">
+        <NotifCard
+          tone="permission"
+          id="perm-title"
+          title="Autorisation demandée"
+          meta={others}
+          actions={
+            <>
+              <button className="primary" disabled={busy} onClick={() => decide(true)} autoFocus>
+                Autoriser
+              </button>
+              <button disabled={busy} onClick={() => decide(false)}>
+                Refuser
+              </button>
+            </>
+          }
+        >
+          {context && <p className="notif-context">Mission {context}</p>}
+          <p>
+            L’agent veut utiliser <strong>{current.tool_name}</strong> :
           </p>
-        )}
-        <p>
-          L’agent veut utiliser <strong>{current.tool_name}</strong> :
-        </p>
-        <pre className="perm-detail">{describeTool(current.tool_name, current.input) || '(sans détail)'}</pre>
-        <details>
-          <summary className="muted small">Paramètres complets</summary>
-          <pre className="perm-detail">{JSON.stringify(current.input, null, 2)}</pre>
-        </details>
-        {error && <p className="error small">{error}</p>}
-        <div className="row modal-actions">
-          {pending.length > 1 && <span className="muted small">+{pending.length - 1} autre(s) en attente</span>}
-          <button className="danger" disabled={busy} onClick={() => decide(false)}>
-            Refuser
-          </button>
-          <button disabled={busy} onClick={() => decide(true)} autoFocus>
-            Autoriser
-          </button>
-        </div>
+          <pre className="perm-detail">{describeTool(current.tool_name, current.input) || '(sans détail)'}</pre>
+          <details>
+            <summary className="small">Paramètres complets</summary>
+            <pre className="perm-detail">{JSON.stringify(current.input, null, 2)}</pre>
+          </details>
+          {error && <p className="error small">{error}</p>}
+        </NotifCard>
       </div>
     </div>
   );
