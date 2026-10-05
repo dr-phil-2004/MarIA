@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bot, Plus, type LucideProps } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { ArrowLeft, Pencil, Plus } from 'lucide-react';
 import { mentionName, parseMentions, type AgentInfo } from '@/lib/mentions';
 import { getSupabase, MARIA_SCHEMA } from '@/lib/supabase';
 import { FINISHED_STATUSES, type Mission, type Workspace } from '@/lib/types';
 import { ActivityHeatmap } from './ActivityHeatmap';
+import { AgentAvatar } from './AgentAvatar';
 import { AgentLibrary } from './AgentLibrary';
+import { AgentStudio } from './AgentStudio';
 import { ConnectorsPage } from './ConnectorsPage';
 import { MemoryView } from './MemoryView';
 import { MissionForm } from './MissionForm';
@@ -26,25 +27,19 @@ const WORKSPACE_REFRESH_MS = 30_000;
 
 /** Page courante <-> ancre d'URL (#/overview, #/agents/coder), pour garder la page au rechargement. */
 function pageFromHash(hash: string): Page {
-  const [, section, rest] = hash.replace(/^#\/?/, '/').split('/');
-  if (section === 'agents' && rest) return { kind: 'agent', name: decodeURIComponent(rest) };
+  const [, section, rest, sub] = hash.replace(/^#\/?/, '/').split('/');
+  if (section === 'agents' && rest) return { kind: 'agent', name: decodeURIComponent(rest), ...(sub === 'edit' ? { edit: true } : {}) };
   if (section === 'missions' && rest) return { kind: 'mission', id: decodeURIComponent(rest) };
   if (section && section in NAV_LABEL) return { kind: section as Exclude<Page['kind'], 'agent' | 'mission'> } as Page;
   return { kind: 'overview' };
 }
 
 function hashFromPage(page: Page): string {
-  if (page.kind === 'agent') return `#/agents/${encodeURIComponent(page.name)}`;
+  if (page.kind === 'agent') return `#/agents/${encodeURIComponent(page.name)}${page.edit ? '/edit' : ''}`;
   if (page.kind === 'mission') return `#/missions/${encodeURIComponent(page.id)}`;
   return `#/${page.kind}`;
 }
 
-const PLACEHOLDERS: Record<'new-agent', { icon: ComponentType<LucideProps>; text: string }> = {
-  'new-agent': {
-    icon: Bot,
-    text: 'La création d’agents depuis MarIA arrive bientôt. En attendant, un agent est un fichier Markdown dans .claude/agents/ du dossier : il apparaît ici au prochain passage du worker.',
-  },
-};
 
 export function Dashboard({ email }: { email: string }) {
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -158,7 +153,9 @@ export function Dashboard({ email }: { email: string }) {
   const opened = page.kind === 'mission' ? (missions.find((m) => m.id === page.id) ?? null) : null;
   const title =
     page.kind === 'agent'
-      ? page.name
+      ? page.edit
+        ? `${page.name} · atelier`
+        : page.name
       : page.kind === 'mission'
         ? opened
           ? opened.prompt.split('\n')[0].slice(0, 70) + (opened.prompt.length > 70 ? '…' : '')
@@ -243,12 +240,38 @@ export function Dashboard({ email }: { email: string }) {
         {page.kind === 'agents' && <AgentLibrary agents={agents} agentLoad={agentLoad} onNavigate={navigate} />}
 
         {page.kind === 'agent' && (
-          <AgentPage key={page.name} agent={agents.find((a) => a.name === page.name) ?? null} name={page.name} workspaces={workspaces} onCreated={openMission} />
+          page.edit ? (
+            <AgentStudio
+              key={page.name}
+              workspaces={workspaces}
+              name={page.name}
+              onSaved={(name) => navigate({ kind: 'agent', name, edit: true })}
+              onDeleted={() => navigate({ kind: 'agents' })}
+              onTest={(name) => navigate({ kind: 'new-mission', prompt: `@${mentionName(name)} ` })}
+            />
+          ) : (
+            <AgentPage
+              key={page.name}
+              agent={agents.find((a) => a.name === page.name) ?? null}
+              name={page.name}
+              workspaces={workspaces}
+              onCreated={openMission}
+              onEdit={() => navigate({ kind: 'agent', name: page.name, edit: true })}
+            />
+          )
         )}
 
         {page.kind === 'connectors' && <ConnectorsPage workspaces={workspaces} agents={agents} />}
 
-        {page.kind === 'new-agent' && <Placeholder {...PLACEHOLDERS[page.kind]} />}
+        {page.kind === 'new-agent' && (
+          <AgentStudio
+            workspaces={workspaces}
+            name={null}
+            onSaved={(name) => navigate({ kind: 'agent', name })}
+            onDeleted={() => navigate({ kind: 'agents' })}
+            onTest={(name) => navigate({ kind: 'new-mission', prompt: `@${mentionName(name)} ` })}
+          />
+        )}
       </main>
       </div>
 
@@ -306,31 +329,33 @@ function useTheme(): ['dark' | 'light', () => void] {
   return [theme, toggle];
 }
 
-function Placeholder({ icon: Icon, text }: { icon: ComponentType<LucideProps>; text: string }) {
-  return (
-    <div className="placeholder">
-      <Icon size={28} strokeWidth={1.5} />
-      <p>{text}</p>
-    </div>
-  );
-}
-
 function AgentPage({
   agent,
   name,
   workspaces,
   onCreated,
+  onEdit,
 }: {
   agent: AgentInfo | null;
   name: string;
   workspaces: Workspace[];
   onCreated: (m: Mission) => void;
+  onEdit: () => void;
 }) {
   const where = workspaces.filter((w) => w.agents?.some((a) => a.name === name)).map((w) => w.name);
   return (
     <div className="agent-page">
-      <div className="card agent-card">
-        <code className="agent-mention">@{mentionName(name)}</code>
+      <div className="float-card agent-card">
+        <div className="agent-card-head">
+          <AgentAvatar name={name} size={52} />
+          <div>
+            <strong>{name}</strong>
+            <code className="agent-mention">@{mentionName(name)}</code>
+          </div>
+          <button className="ghost-btn agent-edit" onClick={onEdit}>
+            <Pencil size={14} strokeWidth={2} /> Modifier l’agent
+          </button>
+        </div>
         <p>{agent?.description || 'Pas de description.'}</p>
         {where.length > 0 && <p className="muted small">Disponible dans : {where.join(', ')}</p>}
       </div>
