@@ -16,11 +16,15 @@
  *
  * @module v3/cli/memory-bridge
  */
+import { AppendConditionFailed, assertAppendConditions, validateAppendConditions, type AppendCondition } from './append-conditions.js';
 
 import { liveMemoryRowSql } from './live-memory-row.js';
+import { resolveAgentdbBetterSqlite3 } from './shared-sqlite.js';
+import { DEFAULT_SEARCH_THRESHOLD } from './search-defaults.js';
+import { encodeEmbeddingQ8, MAX_LIST_EMBEDDINGS } from './embedding-q8.js';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { validateFeedbackPatterns } from './feedback-patterns.js';
@@ -267,7 +271,12 @@ async function getRegistry(dbPath?: string): Promise<any | null> {
           origLog.apply(console, args);
         };
 
+        // #4132: better-sqlite3 cannot create a missing parent directory. In a
+        // fresh checkout or worktree `.swarm/` does not exist yet, so AgentDB
+        // failed to open, the degraded registry was cached for the server's
+        // lifetime and hierarchical memory silently ran volatile.
         try {
+          if (resolvedPath !== ':memory:') mkdirSync(path.dirname(resolvedPath), { recursive: true });
           await (registry as any).initialize({
             // #2786: use agentdb-memory.db (plaintext) so native better-sqlite3 doesn't hit the encrypted memory.db.
             dbPath: resolvedPath,
@@ -431,7 +440,8 @@ async function getRegistry(dbPath?: string): Promise<any | null> {
                   try {
                     const attestationFile = path.join(adbDir, 'dist/src/security/AttestationLog.js');
                     if (fs.existsSync(attestationFile)) {
-                      const Database = (cjsRequire('better-sqlite3') as unknown) as new (p: string) => unknown;
+                      // #3693: same better-sqlite3 copy AgentDB uses, so closing this handle cannot disturb its WAL.
+                      const Database = ((resolveAgentdbBetterSqlite3() ?? cjsRequire('better-sqlite3')) as unknown) as new (p: string) => unknown;
                       const swarmDir = path.resolve(process.cwd(), '.swarm');
                       if (!fs.existsSync(swarmDir)) fs.mkdirSync(swarmDir, { recursive: true });
                       const dbPath = path.join(swarmDir, 'attestation.db');
@@ -892,12 +902,10 @@ function getDb(registry: any): any | null {
   return { db, agentdb };
 }
 
-// One-shot guard so we only patch once per process — the embedder is shared
-// by ReflexionMemory/SkillLibrary/CausalRecall and they all see the same
-// object reference.
-let _embedderPatched = false;
-async function rescueAgentdbEmbedder(agentdb: { embedder?: { pipeline?: unknown; embed?: (t: string) => Promise<Float32Array>; embedBatch?: (ts: string[]) => Promise<Float32Array[]>; __ruvectorRescued?: boolean } }): Promise<void> {
-  if (_embedderPatched) return;
+// The rescue is idempotent per embedder via __ruvectorRescued. A process-wide
+// flag would skip later dbPath registries and leave their embedder on mock (#4410).
+/** @internal Exported for the multi-store rescue regression test. */
+export async function rescueAgentdbEmbedder(agentdb: { embedder?: { pipeline?: unknown; embed?: (t: string) => Promise<Float32Array>; embedBatch?: (ts: string[]) => Promise<Float32Array[]>; __ruvectorRescued?: boolean } }): Promise<void> {
   const emb = agentdb?.embedder;
   if (!emb || emb.__ruvectorRescued) return;
 
@@ -955,7 +963,6 @@ async function rescueAgentdbEmbedder(agentdb: { embedder?: { pipeline?: unknown;
   emb.embedBatch = async (texts: string[]): Promise<Float32Array[]> =>
     Promise.all(texts.map(t => newEmbed(t)));
   emb.__ruvectorRescued = true;
-  _embedderPatched = true;
 }
 
 /** AgentDB uses a null pipeline while its transformer failed and it serves mock vectors. */
@@ -1034,6 +1041,9 @@ export async function bridgeStoreEntry(options: {
   ttl?: number;
   dbPath?: string;
   upsert?: boolean;
+  requireNative?: boolean;
+  appendOnly?: boolean;
+  appendConditions?: AppendCondition[];
   /** ADR-323: defaults to 'unknown' when omitted. */
   provenanceType?: string;
 }): Promise<{
@@ -1075,13 +1085,25 @@ export async function bridgeStoreEntry(options: {
   const ctx = getDb(registry);
   if (!ctx) return null;
 
+  if (options.appendOnly && !options.requireNative) {
+    return { success: false, id: '', error: 'Immutable append requires a native writer' };
+  }
+  if (options.appendConditions && (!options.requireNative || !options.appendOnly)) {
+    return { success: false, id: "", error: "Conditional append requires native append-only storage" };
+  }
+  if (options.requireNative && (ctx.agentdb?.isWasm === true || typeof ctx.db.inTransaction !== 'boolean'
+    || typeof ctx.db.transaction !== 'function' || ctx.db.memory !== false || typeof ctx.db.name !== 'string'
+    || !ctx.db.name || canonicalDbPath(ctx.db.name) !== canonicalDbPath(options.dbPath))) {
+    return { success: false, id: '', error: 'Native memory writer required; refusing non-native bridge driver' };
+  }
+
   try {
     const { key, value, namespace = 'default', tags = [], ttl } = options;
     let provenanceType = options.provenanceType ?? 'unknown';
     // An omitted type on an upsert means "update the value", not "erase the
     // existing trust label". New rows still receive the backward-compatible
     // unknown default.
-    if (options.upsert && options.provenanceType === undefined) {
+    if (options.upsert && !options.appendOnly && options.provenanceType === undefined) {
       try {
         const existing = ctx.db.prepare(
           'SELECT provenance_type FROM memory_entries WHERE namespace = ? AND key = ? LIMIT 1'
@@ -1143,7 +1165,12 @@ export async function bridgeStoreEntry(options: {
     //                                       below → typed "already exists"
     //                                       error, NEVER a null demotion).
     // Upsert path (INSERT OR REPLACE) is unchanged.
-    const insertSql = options.upsert
+    const immutableInsertSql = `INSERT INTO memory_entries (
+          id, key, namespace, content, type,
+          embedding, embedding_dimensions, embedding_model,
+          tags, metadata, provenance_type, created_at, updated_at, expires_at, status
+        ) VALUES (?, ?, ?, ?, 'semantic', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`;
+    const insertSql = options.appendOnly ? immutableInsertSql : options.upsert
       ? `INSERT OR REPLACE INTO memory_entries (
           id, key, namespace, content, type,
           embedding, embedding_dimensions, embedding_model,
@@ -1181,7 +1208,7 @@ export async function bridgeStoreEntry(options: {
     } catch { /* vector_indexes may not exist on legacy DBs — fall through */ }
 
     const stmt = ctx.db.prepare(insertSql);
-    const runResult = stmt.run(
+    const insert = () => stmt.run(
       id, key, namespace, value,
       embeddingJson, dimensions || null, model,
       tags.length > 0 ? JSON.stringify(tags) : null,
@@ -1190,6 +1217,26 @@ export async function bridgeStoreEntry(options: {
       now, now,
       ttl ? now + (ttl * 1000) : null
     );
+
+    let runResult;
+    try {
+      runResult = options.appendOnly
+        ? ctx.db.transaction(() => {
+            // Legacy native tables may predate UNIQUE(namespace,key). Serialize the exact
+            // logical-slot check with INSERT, including tombstones, instead of trusting DDL.
+            if (ctx.db.prepare('SELECT key FROM memory_entries WHERE namespace = ? AND key = ?').all(namespace, key).length) {
+              throw new AppendConditionFailed('immutable append rejected: logical key already exists');
+            }
+            if (options.appendConditions) assertAppendConditions(ctx.db, validateAppendConditions(options.appendConditions));
+            return insert();
+          }).immediate()
+        : insert();
+    } catch (error) {
+      if (error instanceof AppendConditionFailed || error instanceof TypeError) {
+        return { success: false, id: '', error: error.message };
+      }
+      throw error;
+    }
 
     // A completed native write proves the bridge is currently healthy. Do not
     // retain a diagnostic from an earlier transient failure and append it to a
@@ -1209,9 +1256,11 @@ export async function bridgeStoreEntry(options: {
       };
     }
 
+    // A non-vector immutable INSERT cannot change the vector count, even with concurrent
+    // writers. Unlike historical strict mode, it never resurrects a vector tombstone.
     // #2558: keep `vector_indexes.total_vectors` accurate so status/tooling
     // stop reporting "HNSW index: 0 vectors" while embedded entries exist.
-    try {
+    if (!(options.appendOnly && embeddingJson === null)) try {
       ctx.db
         .prepare(
           `UPDATE vector_indexes SET
@@ -1313,6 +1362,19 @@ export async function bridgeStoreEntry(options: {
  * Phase 2: BM25 hybrid scoring replaces naive String.includes() keyword fallback.
  * Combines cosine similarity (semantic) with BM25 (lexical) via reciprocal rank fusion.
  */
+/**
+ * #4397: how many of the newest rows the pre-rank SELECT hands to scoring.
+ * #2982 added ORDER BY updated_at DESC but kept LIMIT 1000, so rows outside
+ * the newest 1000 became unfindable (the sql.js path and 3.38.3 used 10000).
+ * Override with CLAUDE_FLOW_SEARCH_WINDOW (clamped to 100..100000).
+ */
+export const DEFAULT_BRIDGE_SEARCH_WINDOW = 10000;
+export function resolveBridgeSearchWindow(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number.parseInt(env.CLAUDE_FLOW_SEARCH_WINDOW ?? "", 10);
+  if (!Number.isFinite(n)) return DEFAULT_BRIDGE_SEARCH_WINDOW;
+  return Math.min(100000, Math.max(100, n));
+}
+
 export async function bridgeSearchEntries(options: {
   query: string;
   namespace?: string;
@@ -1352,7 +1414,7 @@ export async function bridgeSearchEntries(options: {
   if (!ctx) return null;
 
   try {
-    const { query: queryStr, namespace, limit = 10, threshold = 0.3, provenanceFilter } = options;
+    const { query: queryStr, namespace, limit = 10, threshold = DEFAULT_SEARCH_THRESHOLD, provenanceFilter } = options;
     const effectiveNamespace = namespace || 'all';
     const startTime = Date.now();
 
@@ -1388,7 +1450,7 @@ export async function bridgeSearchEntries(options: {
         FROM memory_entries
         WHERE ${liveMemoryRowSql()} ${whereExtra}
         ORDER BY updated_at DESC
-        LIMIT 1000
+        LIMIT ${resolveBridgeSearchWindow()}
       `);
       rows = filterParams.length > 0 ? stmt.all(...filterParams) : stmt.all();
     } catch {
@@ -1495,6 +1557,12 @@ export async function bridgeListEntries(options: {
   includeContent?: boolean;
   /** ADR-323: restrict rows to these provenance types. */
   provenanceFilter?: string[];
+  /** ADR-472: include each entry's embedding as int8+scale (`embeddingQ8`); at most MAX_LIST_EMBEDDINGS rows. */
+  includeEmbedding?: boolean;
+  /** #4056: also return rows whose TTL has passed (with `expiresAt`). For cleanup only. */
+  includeExpired?: boolean;
+  /** Require entries to include all of these tags (AND). */
+  tags?: string[];
 }): Promise<{
   success: boolean;
   entries: {
@@ -1505,10 +1573,15 @@ export async function bridgeListEntries(options: {
     accessCount: number;
     createdAt: string;
     updatedAt: string;
+    /** #4056: epoch ms the row expires at; null when it never does. */
+    expiresAt?: number | null;
     hasEmbedding: boolean;
     /** #2073: Present when `includeContent: true` was requested. */
     content?: string;
     provenanceType?: string;
+    embeddingQ8?: { dims: number; scale: number; b64: string };
+    /** Tag set stored with the entry (empty array when none). */
+    tags?: string[];
   }[];
   total: number;
   error?: string;
@@ -1521,7 +1594,7 @@ export async function bridgeListEntries(options: {
   if (!ctx) return null;
 
   try {
-    const { namespace, limit = 20, offset = 0, provenanceFilter } = options;
+    const { namespace, limit = 20, offset = 0, provenanceFilter, tags: requiredTags } = options;
     if (provenanceFilter?.some(p => !isValidProvenanceType(p))) return null;
 
     const filters: string[] = [];
@@ -1534,6 +1607,20 @@ export async function bridgeListEntries(options: {
       filters.push(`provenance_type IN (${provenanceFilter.map(() => '?').join(',')})`);
       filterParams.push(...provenanceFilter);
     }
+    // Tags are stored as JSON-array TEXT (e.g. `["a","b"]`). Match each
+    // required tag as an exact element via SQLite's json_each so the filter
+    // runs in SQL instead of pulling the whole table into memory to filter
+    // there. A LIKE-based substring match is ASCII case-insensitive (so
+    // `prod` would match `PROD`) and matches raw JSON bytes rather than
+    // parsed array elements (so a tag literally containing `"prod` could
+    // false-match) — json_each compares real, decoded array values.
+    const tagFilter = Array.isArray(requiredTags)
+      ? requiredTags.filter((t): t is string => typeof t === 'string' && t.length > 0)
+      : [];
+    for (const tag of tagFilter) {
+      filters.push(`EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)`);
+      filterParams.push(tag);
+    }
     const extraFilter = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
 
     // #2120 — `status IS NULL` accepted alongside `'active'`. Old
@@ -1544,7 +1631,15 @@ export async function bridgeListEntries(options: {
     // the `status = 'active'` filter matched zero. Treat NULL as
     // "legacy-active" — the safe default for any entry that predates the
     // status column.
-    const statusFilter = liveMemoryRowSql();
+    const statusFilter = liveMemoryRowSql({ includeExpired: options.includeExpired });
+
+    // `|| 20` would treat an explicit `limit: 0` as falsy and silently
+    // substitute the default (returning 20 rows instead of the requested
+    // zero) — only fall back to the default when parsing genuinely failed.
+    const parsedLimit = parseInt(String(limit), 10);
+    const safeLimit = Number.isNaN(parsedLimit) ? 20 : parsedLimit;
+    const parsedOffset = parseInt(String(offset), 10);
+    const safeOffset = Number.isNaN(parsedOffset) ? 0 : parsedOffset;
 
     // Count
     let total = 0;
@@ -1561,15 +1656,25 @@ export async function bridgeListEntries(options: {
     // List
     const entries: any[] = [];
     try {
+      // Include tags so export/list can round-trip them.
       const stmt = ctx.db.prepare(`
-        SELECT id, key, namespace, content, embedding, access_count, created_at, updated_at, provenance_type
+        SELECT id, key, namespace, content, embedding, access_count, created_at, updated_at, provenance_type, expires_at, tags
         FROM memory_entries
         WHERE ${statusFilter} ${extraFilter}
         ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
       `);
-      const rows = stmt.all(...filterParams, limit, offset);
+      const rows = stmt.all(...filterParams, options.includeEmbedding ? Math.min(safeLimit, MAX_LIST_EMBEDDINGS) : safeLimit, safeOffset);
       for (const row of rows) {
+        let tags: string[] = [];
+        if (row.tags) {
+          try {
+            const parsed = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
+            if (Array.isArray(parsed)) {
+              tags = parsed.filter((t: unknown): t is string => typeof t === 'string');
+            }
+          } catch { /* invalid tags JSON */ }
+        }
         const entry: Record<string, unknown> = {
           // #2073: don't truncate id when content is requested — callers
           // (notably memory_export) need the full id to round-trip via import.
@@ -1580,11 +1685,17 @@ export async function bridgeListEntries(options: {
           accessCount: row.access_count ?? 0,
           createdAt: row.created_at || new Date().toISOString(),
           updatedAt: row.updated_at || new Date().toISOString(),
+          expiresAt: row.expires_at ?? null,
           hasEmbedding: !!(row.embedding && String(row.embedding).length > 10),
           provenanceType: row.provenance_type || 'unknown',
+          tags,
         };
         if (options.includeContent) {
           entry.content = row.content || '';
+        }
+        if (options.includeEmbedding) {
+          const q8 = encodeEmbeddingQ8(row.embedding);
+          if (q8) entry.embeddingQ8 = q8;
         }
         entries.push(entry);
       }
@@ -1744,12 +1855,29 @@ export async function bridgeDeleteEntry(options: {
       return { success: false, deleted: false, key, namespace, remainingEntries: 0, error: `MutationGuard rejected: ${guardResult.reason}` };
     }
 
-    // Soft delete using parameterized query
+    // #3785: secure_delete zeroes the old cells while the payload columns are
+    // scrubbed; otherwise SQLite can leave the deleted text in free pages.
+    try {
+      ctx.db.pragma('secure_delete = ON');
+    } catch { /* non-fatal: the logical scrub below still hides the row */ }
+
+    // Soft delete using parameterized query. The tombstone must keep only
+    // what later upserts/audits need: the payload columns are scrubbed here,
+    // not merely hidden by the status filter. `content` is NOT NULL in the
+    // schema, so "scrubbed" is the empty string rather than SQL NULL; that
+    // still removes the deleted value from disk and from any raw SQLite read.
     let changes = 0;
     try {
       const result = ctx.db.prepare(`
         UPDATE memory_entries
-        SET status = 'deleted', updated_at = ?
+        SET status = 'deleted',
+            content = '',
+            embedding = NULL,
+            embedding_model = NULL,
+            embedding_dimensions = NULL,
+            tags = NULL,
+            metadata = NULL,
+            updated_at = ?
         WHERE key = ? AND namespace = ? AND ${ACTIVE_MEMORY_ROW_SQL}
       `).run(Date.now(), key, namespace);
       changes = result?.changes ?? 0;
@@ -1834,6 +1962,11 @@ export async function bridgePurgeNamespace(options: {
 
     let deletedCount = 0;
     try {
+      // #3785: a hard DELETE without secure_delete leaves the purged payload
+      // in free pages; purge claims to be irreversible.
+      try {
+        ctx.db.pragma('secure_delete = ON');
+      } catch { /* non-fatal: the rows are still removed below */ }
       const result = ctx.db.prepare(`DELETE FROM memory_entries WHERE namespace = ?`).run(namespace);
       deletedCount = result?.changes ?? 0;
     } catch (e) {
@@ -2013,9 +2146,94 @@ export async function bridgeGetVectorSearchStatus(
 }
 
 /**
+ * #4203: RaBitQ pre-filter for the bridge's vector search.
+ *
+ * The index yields candidate ids from a 32×-compressed Hamming scan; each is
+ * reranked here with the same exact cosine similarity the exhaustive scan uses,
+ * so scores keep their meaning and only the scanned set shrinks (the candidate
+ * window `k * 2` is then widened 3× by `searchRabitq` itself).
+ *
+ * Returns null whenever the index cannot answer this query — WASM missing, too
+ * few vectors, or an index built for another store/dimension — so the caller
+ * runs its unchanged brute-force scan. Keyword/BM25 recall is unaffected: this
+ * only ever replaces the cosine scan.
+ */
+async function rabitqSearchAndRerank(
+  db: any,
+  queryEmbedding: number[],
+  options: { k: number; threshold: number; namespace?: string; dbPath?: string },
+): Promise<Array<{ id: string; key: string; content: string; score: number; namespace: string }> | null> {
+  try {
+    const { ensureRabitqIndex, searchRabitq } = await import('./rabitq-index.js');
+
+    const ready = await ensureRabitqIndex({ dbPath: options.dbPath, dimensions: queryEmbedding.length });
+    if (!ready) return null;
+
+    const candidates = await searchRabitq(queryEmbedding, {
+      k: options.k * 2,
+      namespace: options.namespace,
+    });
+    if (!candidates || candidates.length === 0) return null;
+
+    // Fetch exactly the candidates (id is the primary key) instead of the
+    // 10k-row full scan; chunked to stay well inside SQLite's parameter limit.
+    const rowsById = new Map<string, { key: string; namespace: string; content: string; score: number }>();
+    const ids = candidates.map(c => c.id);
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows: any[] = db.prepare(`
+        SELECT id, key, namespace, content, embedding
+        FROM memory_entries
+        WHERE id IN (${placeholders}) AND ${liveMemoryRowSql()} AND embedding IS NOT NULL
+      `).all(...chunk);
+
+      for (const row of rows) {
+        let embedding: number[];
+        try {
+          embedding = JSON.parse(row.embedding) as number[];
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(embedding) || embedding.length !== queryEmbedding.length) continue;
+        rowsById.set(String(row.id), {
+          key: row.key || String(row.id),
+          namespace: row.namespace || 'default',
+          content: row.content || '',
+          score: cosineSim(queryEmbedding, embedding),
+        });
+      }
+    }
+
+    const results: Array<{ id: string; key: string; content: string; score: number; namespace: string }> = [];
+    for (const candidate of candidates) {
+      const row = rowsById.get(candidate.id);
+      if (!row || row.score < options.threshold) continue;
+      results.push({
+        id: candidate.id.substring(0, 12),
+        key: row.key || candidate.id.substring(0, 15),
+        content: row.content.substring(0, 60) + (row.content.length > 60 ? '...' : ''),
+        score: row.score,
+        namespace: row.namespace,
+      });
+    }
+
+    if (results.length === 0) return null;
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, options.k);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Search AgentDB v3's embedder + SQLite entries via a full-table scan and
  * brute-force cosine similarity. NOT HNSW-accelerated — see #2922. Returns
  * null if unavailable.
+ *
+ * #4203: when a RaBitQ index is available the Hamming-scan candidate set is
+ * reranked exactly instead of scanning the whole table; the exhaustive loop
+ * below stays the fallback, so results and scores keep their meaning.
  */
 export async function bridgeSearchBruteForceCosine(
   queryEmbedding: number[],
@@ -2037,10 +2255,21 @@ export async function bridgeSearchBruteForceCosine(
 
   try {
     const k = options?.k ?? 10;
-    const threshold = options?.threshold ?? 0.3;
+    const threshold = options?.threshold ?? DEFAULT_SEARCH_THRESHOLD;
     const nsFilter = options?.namespace && options.namespace !== 'all'
       ? `AND namespace = ?`
       : '';
+
+    // #4203: try the RaBitQ pre-filter before the exhaustive scan below. A null
+    // result (no index / unavailable / nothing above threshold) falls through
+    // to the unchanged brute-force path.
+    const accelerated = await rabitqSearchAndRerank(ctx.db, queryEmbedding, {
+      k,
+      threshold,
+      namespace: options?.namespace,
+      dbPath,
+    });
+    if (accelerated) return accelerated;
 
     let rows: any[];
     try {
@@ -2272,13 +2501,20 @@ export function shutdownBridge(): Promise<void> {
   shutdownPromise = (async () => {
     if (activeOperations > 0) await new Promise<void>(resolve => { drained = resolve; });
     await Promise.allSettled([...registryPromises.values()]);
+    // A failed PERSIST (AGENTDB_LOCK_UNRECOVERABLE: live lock or concurrent
+    // writer on a sql.js database) means pending changes were not saved. That
+    // is surfaced after cleanup completes; other close errors stay best-effort.
+    let persistFailure: unknown;
     for (const registry of new Set(registryInstances.values())) {
-      try { await registry.shutdown(); } catch { /* best-effort cleanup */ }
+      try { await registry.shutdown(); } catch (err) {
+        if ((err as { code?: unknown } | null)?.code === 'AGENTDB_LOCK_UNRECOVERABLE') persistFailure ??= err;
+      }
     }
     registryInstances.clear();
     registryPromises.clear();
     testRegistryOverride = null;
     bridgeFailureReasons.clear();
+    if (persistFailure) throw persistFailure;
   })().finally(() => { shutdownPromise = null; });
   return shutdownPromise;
 }
@@ -2295,7 +2531,7 @@ export async function bridgeStorePattern(options: {
   confidence: number;
   metadata?: Record<string, unknown>;
   dbPath?: string;
-}): Promise<{ success: boolean; patternId: string; controller: string; hasEmbedding?: boolean; embeddingError?: string } | null> {
+}): Promise<{ success: boolean; patternId: string; controller: string; hasEmbedding?: boolean; embeddingError?: string; error?: string } | null> {
   if (!operationContext.getStore()?.active) return withBridgeOperation(() => bridgeStorePattern(options));
   const registry = await getRegistry(options.dbPath);
   if (!registry) return null;
@@ -2345,6 +2581,18 @@ export async function bridgeStorePattern(options: {
     });
 
     if (!result) return null;
+
+    // #3691: bridgeStoreEntry reports data-level failures (MutationGuard
+    // rejection, nothing written) as a truthy {success:false}. Do not turn
+    // that into a success receipt — refuse at this boundary.
+    if (!result.success) {
+      return {
+        success: false,
+        patternId: '',
+        controller: 'bridge-fallback',
+        error: result.error ?? 'pattern write was not persisted',
+      };
+    }
 
     // Add to HNSW index for fast semantic search (bridgeStoreEntry stores SQL only)
     if (result.rawEmbedding) {
@@ -3647,6 +3895,47 @@ export async function bridgeGetAllEmbeddings(options?: {
     }
 
     return results;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Count the embeddings `bridgeGetAllEmbeddings()` would export (#4203).
+ * RaBitQ's auto-build uses this as its cheap "has the corpus drifted?" probe —
+ * a COUNT instead of re-reading every embedding blob. With `dimensions` it
+ * counts only rows build() would keep, so the drift ratio compares like with
+ * like. Returns null if the bridge is unavailable.
+ */
+export async function bridgeCountEmbeddings(options?: {
+  dimensions?: number;
+  dbPath?: string;
+}): Promise<number | null> {
+  if (!operationContext.getStore()?.active) return withBridgeOperation(() => bridgeCountEmbeddings(options));
+  const registry = await getRegistry(options?.dbPath);
+  if (!registry) return null;
+
+  const ctx = getDb(registry);
+  if (!ctx) return null;
+
+  const dims = options?.dimensions;
+  try {
+    if (dims != null) {
+      try {
+        const row = ctx.db.prepare(
+          `SELECT COUNT(*) as cnt FROM memory_entries WHERE ${liveMemoryRowSql()} AND embedding IS NOT NULL AND json_array_length(embedding) = ?`,
+        ).get(dims);
+        return row?.cnt ?? 0;
+      } catch {
+        // JSON1 unavailable in this SQLite build — fall through to the
+        // unfiltered count rather than losing the probe entirely.
+      }
+    }
+
+    const row = ctx.db.prepare(
+      `SELECT COUNT(*) as cnt FROM memory_entries WHERE ${liveMemoryRowSql()} AND embedding IS NOT NULL`,
+    ).get();
+    return row?.cnt ?? 0;
   } catch {
     return null;
   }
