@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { AgentFile, AgentOp } from '../src/lib/agent-def';
 import type { ConnectorConfig, WorkerHealth } from '../src/lib/connectors';
 import type { AgentInfo } from '../src/lib/mentions';
 import type { MemoryEntry, Mission, MissionStatus, StreamEvent, Ticket } from '../src/lib/types';
@@ -130,6 +131,58 @@ export class Store {
     const { data, error } = await this.db.from('connectors').select('*');
     if (error) return [];
     return data as ConnectorConfig[];
+  }
+
+  /** false tant que la migration 0012 (atelier d'agents) n'est pas appliquée. */
+  agentStudio = true;
+
+  private agentStudioMissing(message: string): boolean {
+    if (!/agent_(files|ops)/.test(message)) return false;
+    if (this.agentStudio) console.warn("[maria] tables agent_files/agent_ops absentes : applique supabase/migrations/0012_agent_studio.sql pour l'atelier d'agents.");
+    this.agentStudio = false;
+    return true;
+  }
+
+  /** name -> hash des définitions d'agents déjà publiées pour ce dossier. */
+  async agentFilesIndex(workspace: string): Promise<Map<string, string> | null> {
+    const { data, error } = await this.db.from('agent_files').select('name, hash').eq('workspace', workspace);
+    if (error) {
+      if (this.agentStudioMissing(error.message)) return null;
+      throw new Error(`agentFilesIndex: ${error.message}`);
+    }
+    return new Map((data as Array<{ name: string; hash: string }>).map((r) => [r.name, r.hash]));
+  }
+
+  async upsertAgentFiles(rows: Array<Omit<AgentFile, 'updated_at'>>): Promise<void> {
+    for (let i = 0; i < rows.length; i += 50) {
+      const { error } = await this.db.from('agent_files').upsert(rows.slice(i, i + 50).map((r) => ({ ...r, updated_at: new Date().toISOString() })));
+      if (error) throw new Error(`upsertAgentFiles: ${error.message}`);
+    }
+  }
+
+  async deleteAgentFiles(workspace: string, names: string[]): Promise<void> {
+    for (let i = 0; i < names.length; i += 100) {
+      const { error } = await this.db.from('agent_files').delete().eq('workspace', workspace).in('name', names.slice(i, i + 100));
+      if (error) throw new Error(`deleteAgentFiles: ${error.message}`);
+    }
+  }
+
+  async pendingAgentOps(workspaces: string[]): Promise<AgentOp[]> {
+    if (!this.agentStudio || workspaces.length === 0) return [];
+    const { data, error } = await this.db.from('agent_ops').select('*').eq('status', 'pending').in('workspace', workspaces).order('created_at').limit(20);
+    if (error) {
+      if (this.agentStudioMissing(error.message)) return [];
+      throw new Error(`pendingAgentOps: ${error.message}`);
+    }
+    return data as AgentOp[];
+  }
+
+  async finishAgentOp(id: string, error: string | null): Promise<void> {
+    const { error: err } = await this.db
+      .from('agent_ops')
+      .update({ status: error ? 'error' : 'done', error, done_at: new Date().toISOString() })
+      .eq('id', id);
+    if (err) throw new Error(`finishAgentOp: ${err.message}`);
   }
 
   async getSetting<T>(key: string): Promise<T | null> {

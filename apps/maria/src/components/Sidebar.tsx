@@ -15,7 +15,7 @@ export type Page =
   | { kind: 'agents' }
   | { kind: 'new-agent' }
   | { kind: 'new-mission'; prompt?: string }
-  | { kind: 'agent'; name: string }
+  | { kind: 'agent'; name: string; edit?: boolean }
   | { kind: 'mission'; id: string };
 
 type StaticKind = Exclude<Page['kind'], 'agent' | 'mission'>;

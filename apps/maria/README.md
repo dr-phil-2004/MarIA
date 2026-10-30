@@ -50,7 +50,7 @@ Si le projet Supabase existe déjà, avec ses migrations et ton compte membre, p
 
 1. **Exposer le schéma.** Dans *Project Settings → API → Exposed schemas*, ajoute `maria`.
 2. **Appliquer les migrations.** Dans le *SQL Editor*, exécute **dans l'ordre** les fichiers de `supabase/migrations/` :
-   `0001_maria_init.sql` → `0011_connectors.sql`.
+   `0001_maria_init.sql` → `0012_agent_studio.sql`.
    Termine par :
    ```sql
    notify pgrst, 'reload schema';
@@ -152,6 +152,7 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 - **Autorisations et questions** : une fenêtre s'ouvre dans MarIA quand l'agent veut faire une action non pré-autorisée, ou quand il te pose une question.
 - **Continuer** : relance la même conversation Claude Code avec une nouvelle consigne.
 - **Tickets** : vues Tableau (Kanban), Liste et Tableur. « Lancer l’agent » exécute le ticket avec l’agent assigné sur la branche `maria/T-<numéro>-…` ; à la fin, le worker pousse la branche et ouvre la PR avec la CLI GitHub (`gh`, à installer et connecter une fois avec `gh auth login` sur la machine du worker), puis le ticket passe « En revue » avec le lien de la PR.
+- **Atelier d'agents** : « + » à côté de *Agents* dans la barre latérale (ou « Modifier l’agent » sur sa page) crée ou modifie un agent : nom, description (« quand l’utiliser »), modèle, couleur, outils autorisés, connecteurs et instructions, avec des modèles de départ (Relecteur, Testeur, Documentaliste). Le worker écrit le fichier dans `.claude/agents/` du dossier choisi ; les champs d’en-tête qu’il ne gère pas (ceux des agents Ruflo, par exemple) sont conservés. Un agent de `~/.claude/agents` modifié depuis MarIA est recopié dans le dossier ; les agents intégrés à Claude Code ne sont pas modifiables.
 - **Connecteurs** : état de la machine du worker (Claude Code, GitHub CLI, Ruflo, serveurs MCP du projet) et serveurs MCP à brancher sur les missions (GitHub, navigateur Playwright, PostgreSQL, Slack, Notion ou serveur personnalisé). Pour chacun : activation, « Demander » ou « Toujours autoriser », outils pré-autorisés et agents concernés (le connecteur n'est alors chargé que si la mission mentionne un de ces agents). Les jetons vont dans `.env.local` du worker (ex. `GITHUB_PERSONAL_ACCESS_TOKEN=…`), puis `npm run service -- restart` ; MarIA n'enregistre que le nom des variables. Un connecteur dont un jeton manque est ignoré, avec un avertissement dans le fil de la mission.
 - **Mémoire** : l'onglet affiche la mémoire Ruflo du dossier (`.swarm/memory.db`), recopiée par le worker toutes les 30 s.
 
@@ -165,9 +166,10 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 | « Accès refusé » à la connexion | Ton compte n'est pas dans `maria.members` (étape 3.3) |
 | `spawn claude ENOENT` | Claude Code n'est pas installé pour le Node 22 actif (`npm i -g @anthropic-ai/claude-code`) |
 | Pas de fenêtre d'autorisation | Retirer `MARIA_INTERACTIVE_PERMISSIONS=0` de `.env.local` et redémarrer le worker |
-| Erreur `... applique la migration 0006…0011` | Exécuter la migration indiquée dans Supabase |
+| Erreur `... applique la migration 0006…0012` | Exécuter la migration indiquée dans Supabase |
 | Le lien de connexion renvoie vers localhost | Adresse Vercel absente des *Redirect URLs* Supabase (étape 3.4) |
 | Connecteur « À configurer » | Un jeton manque dans `.env.local` du worker ; l'ajouter puis `npm run service -- restart` (l'état se met à jour au redémarrage, puis toutes les 10 min) |
+| L’atelier reste sur « Enregistrement… » | Le worker est arrêté ou ancien : `git pull` puis `npm run service -- restart` (la demande est appliquée à son retour) |
 | Onglet Mémoire vide | La base Ruflo n'existe pas encore dans ce dossier (`npx ruflo@latest memory init`) |
 
 ## Sécurité
