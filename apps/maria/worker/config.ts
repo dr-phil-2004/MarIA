@@ -14,6 +14,9 @@ export interface WorkerConfig {
   permissionMode: PermissionMode;
   allowedTools: string[];
   model: string | null;
+  /** Clé OpenRouter (missions dont le fournisseur est OpenRouter) ; jamais envoyée à Supabase. */
+  openrouterKey: string | null;
+  openrouterBaseUrl: string;
   ignorePaths: string[];
   pollMs: number;
   /** Demandes d'autorisation affichées dans MarIA (sinon : refus automatique). */
@@ -108,6 +111,8 @@ export function loadConfig(): WorkerConfig {
     permissionMode,
     allowedTools: list(process.env.MARIA_ALLOWED_TOOLS),
     model: process.env.MARIA_MODEL?.trim() || null,
+    openrouterKey: process.env.OPENROUTER_API_KEY?.trim() || null,
+    openrouterBaseUrl: process.env.OPENROUTER_BASE_URL?.trim() || 'https://openrouter.ai/api',
     ignorePaths: list(process.env.MARIA_IGNORE_PATHS ?? '.claude-flow/,.swarm/'),
     pollMs,
     interactivePermissions: process.env.MARIA_INTERACTIVE_PERMISSIONS?.trim() !== '0',

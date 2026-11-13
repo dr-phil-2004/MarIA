@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AgentFile, AgentOp } from '../src/lib/agent-def';
 import type { ConnectorConfig, WorkerHealth } from '../src/lib/connectors';
 import type { AgentInfo } from '../src/lib/mentions';
-import type { MemoryEntry, Mission, MissionStatus, StreamEvent, Ticket } from '../src/lib/types';
+import type { MemoryEntry, Mission, MissionStatus, Routine, StreamEvent, Ticket } from '../src/lib/types';
 
 const MAX_STRING = 4000;
 
@@ -183,6 +183,58 @@ export class Store {
       .update({ status: error ? 'error' : 'done', error, done_at: new Date().toISOString() })
       .eq('id', id);
     if (err) throw new Error(`finishAgentOp: ${err.message}`);
+  }
+
+  /** false tant que la migration 0013 (routines) n'est pas appliquée. */
+  routines = true;
+
+  /** Routines planifiées à échéance (ou jamais planifiées) pour ces dossiers. */
+  async dueRoutines(workspaces: string[], now: Date): Promise<Routine[]> {
+    if (!this.routines || workspaces.length === 0) return [];
+    const { data, error } = await this.db
+      .from('routines')
+      .select('*')
+      .eq('enabled', true)
+      .eq('trigger', 'schedule')
+      .in('workspace', workspaces)
+      .or(`next_run_at.is.null,next_run_at.lte.${now.toISOString()}`);
+    if (error) {
+      if (/routines/.test(error.message)) {
+        this.routines = false;
+        console.warn('[maria] table routines absente : applique supabase/migrations/0013_routines.sql pour les routines.');
+        return [];
+      }
+      throw new Error(`dueRoutines: ${error.message}`);
+    }
+    return data as Routine[];
+  }
+
+  /** Réserve l'échéance (un seul worker la traite) en avançant next_run_at ; false si déjà prise. */
+  async claimRoutine(routine: Routine, next: Date | null, fired: boolean): Promise<boolean> {
+    let query = this.db
+      .from('routines')
+      .update({ next_run_at: next?.toISOString() ?? null, ...(fired ? { last_run_at: new Date().toISOString() } : {}) })
+      .eq('id', routine.id);
+    query = routine.next_run_at ? query.eq('next_run_at', routine.next_run_at) : query.is('next_run_at', null);
+    const { data, error } = await query.select('id');
+    if (error) throw new Error(`claimRoutine: ${error.message}`);
+    return (data as unknown[]).length > 0;
+  }
+
+  async routineBusy(routineId: string): Promise<boolean> {
+    const { count, error } = await this.db
+      .from('missions')
+      .select('id', { count: 'exact', head: true })
+      .eq('routine_id', routineId)
+      .in('status', ['queued', 'running', 'cancel_requested']);
+    if (error) throw new Error(`routineBusy: ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
+  async queueMission(row: Pick<Mission, 'prompt' | 'workspace' | 'use_worktree' | 'provider' | 'model'> & { routine_id: string }): Promise<string> {
+    const { data, error } = await this.db.from('missions').insert(row).select('id').single();
+    if (error) throw new Error(`queueMission: ${error.message}`);
+    return (data as { id: string }).id;
   }
 
   async getSetting<T>(key: string): Promise<T | null> {

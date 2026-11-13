@@ -18,6 +18,7 @@ import { NewMissionPage } from './NewMissionPage';
 import { NotifCard } from './NotifCard';
 import { NotificationsPage } from './NotificationsPage';
 import { PermissionPrompt } from './PermissionPrompt';
+import { RoutinesPage } from './RoutinesPage';
 import { NAV_LABEL, Sidebar, type Page } from './Sidebar';
 import { TeamsPage } from './TeamsPage';
 import { TicketsPage } from './TicketsPage';
@@ -234,6 +235,8 @@ export function Dashboard({ email }: { email: string }) {
             onLaunch={(prompt) => navigate({ kind: 'new-mission', prompt })}
           />
         )}
+
+        {page.kind === 'routines' && <RoutinesPage workspaces={workspaces} missions={missions} onOpenMission={openMission} />}
 
         {page.kind === 'brains' && <MemoryView workspaces={workspaces} />}
 

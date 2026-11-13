@@ -1,5 +1,5 @@
 // Tuile d'icône et statut d'un connecteur, partagés par la page Connecteurs et son panneau de détail.
-import { CircleAlert, Check, Database, FileText, GitPullRequest, Globe, MessageSquare, Minus, Plug, Puzzle, type LucideIcon } from 'lucide-react';
+import { Blocks, CircleAlert, Check, Database, FileText, GitPullRequest, Globe, MessageSquare, Minus, Plug, Puzzle, type LucideIcon } from 'lucide-react';
 import type { ConnectorConfig, ConnectorDef, WorkerHealth } from '@/lib/connectors';
 import type { Tone } from './StatusBadge';
 
@@ -9,6 +9,7 @@ const ICONS: Record<string, LucideIcon> = {
   postgres: Database,
   slack: MessageSquare,
   notion: FileText,
+  composio: Blocks,
 };
 
 export function ConnectorIcon({ def, size = 40 }: { def: ConnectorDef; size?: number }) {

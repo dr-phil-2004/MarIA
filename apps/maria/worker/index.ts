@@ -7,6 +7,7 @@ import { connectorEnvNames } from './connectors';
 import { computeHealth } from './health';
 import { loadConfig } from './config';
 import { MemorySync, sqliteAvailable } from './memory';
+import { fireDueRoutines } from './routines';
 import { runMission } from './runner';
 import { Store } from './store';
 import type { Mission } from '../src/lib/types';
@@ -28,7 +29,7 @@ async function main(): Promise<void> {
   const health = new Map<string, Awaited<ReturnType<typeof computeHealth>>>();
   let healthAt = 0;
   const refreshHealth = async () => {
-    const envNames = connectorEnvNames(await store.listConnectors());
+    const envNames = [...connectorEnvNames(await store.listConnectors()), 'OPENROUTER_API_KEY'];
     for (const name of names) health.set(name, await computeHealth(cfg.claudeBin, cfg.workspaces[name], envNames));
     healthAt = Date.now();
   };
@@ -122,6 +123,7 @@ async function main(): Promise<void> {
     if (polling || shutdown.signal.aborted) return;
     polling = true;
     try {
+      await fireDueRoutines(store, names).catch((err: Error) => console.error(`[maria] routines : ${err.message}`));
       await runAgentOps().catch((err: Error) => console.error(`[maria] atelier d'agents : ${err.message}`));
       // Fusions et abandons demandés : ils touchent le dossier principal, donc exclusifs avec les missions sur place.
       for (const mission of await store.pendingWorktreeActions(names.filter((n) => !mainBusy.has(n)))) {

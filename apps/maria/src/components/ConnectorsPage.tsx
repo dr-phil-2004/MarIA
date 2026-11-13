@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { Activity, Brain, Cpu, GitPullRequest, Plus, Server, ShieldCheck, Terminal } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Activity, Brain, Cpu, GitPullRequest, KeyRound, Plus, Server, ShieldCheck, Terminal } from 'lucide-react';
 import { CATALOG, CATEGORY_LABEL, resolveDef, type ConnectorCategory, type ConnectorConfig, type ConnectorDef } from '@/lib/connectors';
 import type { AgentInfo } from '@/lib/mentions';
 import { getSupabase } from '@/lib/supabase';
 import type { Workspace } from '@/lib/types';
 import { ConnectorDrawer } from './ConnectorDrawer';
+import { CustomServerDialog } from './CustomServerDialog';
+import { DefaultModelCard } from './ModelPicker';
 import { ConnectorIcon, connectorState } from './ConnectorIcon';
 import { Badge } from './StatusBadge';
 
@@ -145,6 +147,13 @@ export function ConnectorsPage({ workspaces, agents }: Props) {
       hint: health && !health.ruflo.initialized ? 'npx ruflo@latest init' : undefined,
     },
     {
+      icon: KeyRound,
+      title: 'OpenRouter',
+      value: !health ? '—' : health.env_present.includes('OPENROUTER_API_KEY') ? 'Clé présente' : 'Pas de clé (facultatif)',
+      ok: health ? (health.env_present.includes('OPENROUTER_API_KEY') ? true : null) : null,
+      hint: health && !health.env_present.includes('OPENROUTER_API_KEY') ? 'OPENROUTER_API_KEY=' : undefined,
+    },
+    {
       icon: Server,
       title: 'MCP du projet',
       value: !health ? '—' : health.project_mcp.length > 0 ? health.project_mcp.join(', ') : 'Aucun (.mcp.json)',
@@ -237,6 +246,10 @@ export function ConnectorsPage({ workspaces, agents }: Props) {
       </section>
 
       <section className="cx-section">
+        <DefaultModelCard keyPresent={health ? health.env_present.includes('OPENROUTER_API_KEY') : null} />
+      </section>
+
+      <section className="cx-section">
         <div className="float-card cx-allowed">
           <div className="cx-stat-head">
             <ShieldCheck size={16} strokeWidth={2} />
@@ -267,7 +280,7 @@ export function ConnectorsPage({ workspaces, agents }: Props) {
       )}
 
       {adding && (
-        <CustomDialog
+        <CustomServerDialog
           taken={entries.map((e) => e.def.id)}
           onClose={() => setAdding(false)}
           onCreate={(config) => {
@@ -276,67 +289,6 @@ export function ConnectorsPage({ workspaces, agents }: Props) {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function CustomDialog({ taken, onClose, onCreate }: { taken: string[]; onClose: () => void; onCreate: (config: ConnectorConfig) => void }) {
-  const [id, setId] = useState('');
-  const [name, setName] = useState('');
-  const [command, setCommand] = useState('npx');
-  const [args, setArgs] = useState('');
-  const [env, setEnv] = useState('');
-
-  const idError = !id ? null : !/^[a-z0-9][a-z0-9-]{0,39}$/.test(id) || id === 'maria' ? 'minuscules, chiffres et tirets' : taken.includes(id) ? 'déjà utilisé' : null;
-  const envList = splitList(env).map((v) => v.toUpperCase());
-  const envError = envList.some((v) => !/^[A-Z_][A-Z0-9_]*$/.test(v)) ? 'Noms de variables : lettres, chiffres et _' : null;
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!id || idError || envError || !command.trim()) return;
-    onCreate({
-      ...defaultConfig(id),
-      enabled: true,
-      custom: { name: name.trim() || id, description: '', command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : [], env: envList },
-    });
-  }
-
-  return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="mcp-dialog" onClick={onClose}>
-      <form className="card modal team-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2 id="mcp-dialog">Serveur MCP personnalisé</h2>
-        <div className="tk-dialog-grid">
-          <label className="field">
-            Identifiant {idError && <span className="error small">({idError})</span>}
-            <input autoFocus value={id} onChange={(e) => setId(e.target.value.toLowerCase())} placeholder="sentry" maxLength={40} />
-          </label>
-          <label className="field">
-            Nom affiché
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sentry" maxLength={60} />
-          </label>
-        </div>
-        <label className="field">
-          Commande
-          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="npx" />
-        </label>
-        <label className="field">
-          Arguments (séparés par des espaces ; ${'{'}VAR{'}'} = variable du worker)
-          <input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="-y @sentry/mcp-server" />
-        </label>
-        <label className="field">
-          Variables d’environnement requises {envError && <span className="error small">({envError})</span>}
-          <input value={env} onChange={(e) => setEnv(e.target.value)} placeholder="SENTRY_ACCESS_TOKEN" />
-        </label>
-        <p className="muted small">Seuls les noms des variables sont enregistrés ; leurs valeurs vont dans le .env.local du worker.</p>
-        <div className="row modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>
-            Annuler
-          </button>
-          <button className="primary-btn small" disabled={!id || !!idError || !!envError || !command.trim()}>
-            Ajouter
-          </button>
-        </div>
-      </form>
     </div>
   );
 }
