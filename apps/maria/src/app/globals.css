@@ -1097,3 +1097,29 @@ button.tl-row:hover .tl-text { color: var(--text); }
 .as-file-toggle > svg { color: var(--glow); flex: none; }
 .as-file-toggle code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
 .as-file-pre { margin: 0; padding: 10px; max-height: 360px; overflow: auto; border-radius: 10px; background: var(--code-bg); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+
+/* Routines */
+.rt { display: grid; gap: 18px; min-width: 0; }
+.rt-intro { margin: 0; }
+.rt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.rt-card { align-content: start; }
+.rt-card.off { opacity: .65; }
+.rt-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.rt-trigger { margin: 0; font-size: 13px; color: var(--glow); font-weight: 500; }
+.rt-prompt { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; white-space: pre-line; }
+.rt-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: var(--glow); background: color-mix(in srgb, var(--glow) 15%, transparent); border: 1px solid color-mix(in srgb, var(--glow) 35%, transparent); box-shadow: 0 0 18px -6px var(--glow); }
+.rt-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rt-agents { display: inline-flex; margin-right: 4px; }
+.rt-agents > * + * { margin-left: -6px; }
+.rt-when { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.rt-runs { display: grid; gap: 2px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.rt-actions { display: flex; gap: 8px; }
+.rt-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.rt-actions button:first-child { flex: 1; justify-content: center; }
+.rt-actions button:disabled { opacity: .5; }
+.rt-drawer-title { font-size: 17px; }
+.rt-upcoming { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rt-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; flex-wrap: wrap; }
+.rt-check input { accent-color: var(--accent); width: auto; flex: none; margin: 0; }
+.rt-regen { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

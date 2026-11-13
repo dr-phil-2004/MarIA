@@ -33,6 +33,8 @@ export interface Mission {
   worktree_error: string | null;
   /** Ticket exécuté par cette mission (page Tickets). */
   ticket_id?: string | null;
+  /** Routine qui a lancé cette mission (page Routines). */
+  routine_id?: string | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;
@@ -192,4 +194,23 @@ export interface AgentQuestion {
   header?: string;
   multiSelect?: boolean;
   options?: Array<{ label: string; description?: string }>;
+}
+
+/** Routine : mission lancée selon un planning (cron) ou par un webhook. */
+export interface Routine {
+  id: string;
+  name: string;
+  workspace: string;
+  prompt: string;
+  use_worktree: boolean;
+  enabled: boolean;
+  trigger: 'schedule' | 'webhook';
+  cron: string | null;
+  timezone: string;
+  skip_if_running: boolean;
+  webhook_token_hash: string | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

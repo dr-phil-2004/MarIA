@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
-import { Bell, Brain, House, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
+import { Bell, Brain, CalendarClock, House, MoreHorizontal, PanelLeft, Plug, Plus, Ticket, Users, type LucideProps } from 'lucide-react';
 import { mentionName, type AgentInfo } from '@/lib/mentions';
 import { AgentAvatar, LoadBars, loadLevel, loadTitle } from './AgentAvatar';
 
@@ -9,6 +9,7 @@ export type Page =
   | { kind: 'overview' }
   | { kind: 'teams' }
   | { kind: 'tickets' }
+  | { kind: 'routines' }
   | { kind: 'notifications' }
   | { kind: 'brains' }
   | { kind: 'connectors' }
@@ -30,6 +31,7 @@ export const NAV_LABEL: Record<StaticKind, string> = {
   overview: 'Overview',
   teams: 'Teams',
   tickets: 'Tickets',
+  routines: 'Routines',
   notifications: 'Notifications',
   brains: 'Brains',
   connectors: 'Connecteurs',
@@ -45,6 +47,7 @@ export const SECTIONS: Array<{ title: string | null; items: NavItem[] }> = [
     items: [
       { kind: 'teams', label: NAV_LABEL.teams, icon: Users },
       { kind: 'tickets', label: NAV_LABEL.tickets, icon: Ticket },
+      { kind: 'routines', label: NAV_LABEL.routines, icon: CalendarClock },
       { kind: 'notifications', label: NAV_LABEL.notifications, icon: Bell },
       { kind: 'brains', label: NAV_LABEL.brains, icon: Brain },
     ],
