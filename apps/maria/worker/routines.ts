@@ -33,7 +33,7 @@ export async function fireDueRoutines(store: Store, workspaces: string[], now = 
       console.log(`[maria] routine « ${routine.name} » : exécution précédente encore en cours, échéance passée`);
       continue;
     }
-    const id = await store.queueMission({ prompt: routine.prompt, workspace: routine.workspace, use_worktree: routine.use_worktree, routine_id: routine.id });
+    const id = await store.queueMission({ prompt: routine.prompt, workspace: routine.workspace, use_worktree: routine.use_worktree, routine_id: routine.id, provider: routine.provider, model: routine.model });
     reported.delete(routine.id);
     console.log(`[maria] routine « ${routine.name} » → mission ${id}${next ? ` (prochaine : ${next.toISOString()})` : ''}`);
   }

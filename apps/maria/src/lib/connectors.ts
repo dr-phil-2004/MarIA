@@ -2,18 +2,25 @@
 // Partagé par l'interface (page Connecteurs) et le worker (configuration MCP de chaque mission).
 // Les secrets ne quittent jamais la machine du worker : on ne déclare ici que le NOM des variables d'environnement.
 
-export type ConnectorCategory = 'code' | 'data' | 'communication' | 'organisation' | 'custom';
+export type ConnectorCategory = 'code' | 'data' | 'communication' | 'organisation' | 'integrations' | 'custom';
 
 export interface ConnectorDef {
   id: string;
   name: string;
   description: string;
   category: ConnectorCategory;
+  /** stdio (défaut) : programme lancé sur la machine du worker ; http : serveur MCP distant. */
+  transport?: 'stdio' | 'http';
   /** Commande lancée par Claude Code ; ${VAR} est remplacé par la variable d'environnement du worker. */
   command: string;
   args: string[];
+  /** Serveur distant : adresse et en-têtes, avec ${VAR} remplacé de la même façon. */
+  url?: string;
+  headers?: Record<string, string>;
   /** Variables d'environnement requises (dans .env.local du worker). */
   env: string[];
+  /** Variables utilisées si elles sont présentes (un en-tête vide n'est pas envoyé). */
+  optionalEnv?: string[];
   /** Où obtenir le jeton. */
   setup: string;
   /** Exemples d'outils exposés (indicatif). */
@@ -83,6 +90,23 @@ export const CATALOG: ConnectorDef[] = [
     tools: ['API-post-search', 'API-retrieve-a-page', 'API-patch-page'],
     color: '#9ca3af',
   },
+  {
+    id: 'composio',
+    name: 'Composio',
+    description: 'Des centaines d’applications (Gmail, Agenda, Drive, Sheets, Slack, Notion, Linear, HubSpot…) via un seul serveur MCP distant ; Composio gère les connexions.',
+    category: 'integrations',
+    transport: 'http',
+    command: '',
+    args: [],
+    url: '${COMPOSIO_MCP_URL}',
+    headers: { 'x-api-key': '${COMPOSIO_API_KEY}' },
+    env: ['COMPOSIO_MCP_URL'],
+    optionalEnv: ['COMPOSIO_API_KEY'],
+    setup:
+      'Sur composio.dev : connecte les applications voulues, crée un serveur MCP en ne gardant que les outils utiles (trop d’outils rendent l’agent moins bon), puis copie son adresse dans COMPOSIO_MCP_URL et, si Composio la demande, ta clé API dans COMPOSIO_API_KEY. Tes données transitent par Composio.',
+    tools: ['GMAIL_SEND_EMAIL', 'GOOGLECALENDAR_CREATE_EVENT', 'SLACK_SEND_MESSAGE', 'NOTION_CREATE_PAGE'],
+    color: '#a78bfa',
+  },
 ];
 
 export const CATEGORY_LABEL: Record<ConnectorCategory, string> = {
@@ -90,8 +114,20 @@ export const CATEGORY_LABEL: Record<ConnectorCategory, string> = {
   data: 'Données',
   communication: 'Communication',
   organisation: 'Organisation',
+  integrations: 'Intégrations',
   custom: 'Personnalisés',
 };
+
+/** Serveur MCP déclaré à la main : commande locale, ou adresse distante (url) avec en-têtes. */
+export interface CustomServer {
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+  env: string[];
+  url?: string;
+  headers?: Record<string, string>;
+}
 
 /** Réglages d'un connecteur, enregistrés dans maria.connectors. */
 export interface ConnectorConfig {
@@ -104,7 +140,7 @@ export interface ConnectorConfig {
   /** Agents pour lesquels le connecteur est chargé (mission qui les mentionne) ; null = toutes les missions. */
   agents: string[] | null;
   /** Serveur MCP personnalisé (sinon : entrée du catalogue). */
-  custom: { name: string; description: string; command: string; args: string[]; env: string[] } | null;
+  custom: CustomServer | null;
   updated_at?: string;
 }
 
@@ -116,8 +152,11 @@ export function resolveDef(config: ConnectorConfig): ConnectorDef | null {
       name: config.custom.name || config.id,
       description: config.custom.description || 'Serveur MCP personnalisé.',
       category: 'custom',
+      transport: config.custom.url ? 'http' : 'stdio',
       command: config.custom.command,
       args: config.custom.args,
+      url: config.custom.url,
+      headers: config.custom.headers,
       env: config.custom.env,
       setup: 'Serveur déclaré à la main dans MarIA.',
       tools: [],
@@ -127,9 +166,21 @@ export function resolveDef(config: ConnectorConfig): ConnectorDef | null {
   return CATALOG.find((c) => c.id === config.id) ?? null;
 }
 
+/** Remplace ${VAR} dans un texte par les valeurs fournies. */
+export function expandVars(text: string, env: Record<string, string | undefined>): string {
+  return text.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v: string) => env[v] ?? '');
+}
+
 /** Remplace ${VAR} dans les arguments par les valeurs fournies. */
 export function expandArgs(args: string[], env: Record<string, string | undefined>): string[] {
-  return args.map((a) => a.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v: string) => env[v] ?? ''));
+  return args.map((a) => expandVars(a, env));
+}
+
+/** Noms des variables ${VAR} cités dans des textes (adresse, en-têtes, arguments). */
+export function referencedVars(texts: string[]): string[] {
+  const out = new Set<string>();
+  for (const t of texts) for (const m of t.matchAll(/\$\{([A-Z0-9_]+)\}/g)) out.add(m[1]);
+  return [...out];
 }
 
 /** État du worker publié dans maria.workspaces.health (aucun secret, seulement des présences). */

@@ -1123,3 +1123,7 @@ button.tl-row:hover .tl-text { color: var(--text); }
 .rt-check input { accent-color: var(--accent); width: auto; flex: none; margin: 0; }
 .rt-regen { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Choix du modèle */
+.mp { display: grid; gap: 8px; justify-items: start; }
+.mp select, .mp input { width: min(360px, 100%); }

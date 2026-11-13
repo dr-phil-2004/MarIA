@@ -11,6 +11,7 @@ import { PERMISSION_TOOL, SERVER_NAME } from './permission-mcp';
 import { readRufloAgents, touchesRuflo } from './ruflo';
 import { EventSink, type Store } from './store';
 import { connectorPlan, type ConnectorPlan, type McpServer } from './connectors';
+import { describeResolved, resolveModel } from './providers';
 import { pushAndOpenPr } from './github';
 import { commitWorktree, createWorktree, isGitRepo, slugify, worktreeCwd, type WorktreeInfo } from './worktree';
 
@@ -69,6 +70,7 @@ function buildArgs(
   branch: string | null,
   chain: string[],
   connectors: ConnectorPlan,
+  modelArg: string | null,
 ): string[] {
   // Le prompt passe par stdin : --allowedTools est variadique et avalerait un argument positionnel.
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cfg.permissionMode];
@@ -84,7 +86,7 @@ function buildArgs(
   if (!cfg.interactivePermissions) args.push('--disallowedTools', 'AskUserQuestion');
   const allowed = [...new Set([...cfg.allowedTools, ...connectors.allowed])];
   if (allowed.length > 0) args.push('--allowedTools', allowed.join(','));
-  if (cfg.model) args.push('--model', cfg.model);
+  if (modelArg) args.push('--model', modelArg);
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   return args;
 }
@@ -207,6 +209,17 @@ export async function runMission(
   const connectors = await connectorPlan(store, chain).catch(() => ({ servers: {}, allowed: [], loaded: [], notes: [] }) as ConnectorPlan);
   if (connectors.loaded.length > 0) sink.info(`Connecteurs : ${connectors.loaded.join(', ')}`);
   for (const note of connectors.notes) sink.info(note, 'warn');
+  let model;
+  try {
+    model = await resolveModel(store, cfg, mission, chain);
+  } catch (err) {
+    sink.info((err as Error).message, 'error');
+    await sink.flush();
+    await updateTicket({ status: 'blocked' });
+    throw err;
+  }
+  sink.info(`Modèle : ${describeResolved(model)}`);
+  await store.update(mission.id, { provider: model.choice.provider, model: model.modelArg }).catch(() => undefined);
   const resumeSessionId = await resolveResume(store, mission, sink, cfg, cwd);
   const before = await snapshotDirty(cwd).catch(() => null);
   const toolFiles = new Set<string>();
@@ -216,10 +229,10 @@ export async function runMission(
   let cancelled = false;
   let usedRuflo = false;
 
-  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null, chain, connectors), {
+  const child = spawn(cfg.claudeBin, buildArgs(cfg, cwd, mission.id, resumeSessionId, worktree?.branch ?? null, chain, connectors, model.modelArg), {
     cwd,
     // Laisse au serveur de permissions le temps d'attendre la décision de l'utilisateur.
-    env: { ...process.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000), MARIA_CHAIN_AGENTS: chain.join(',') },
+    env: { ...process.env, ...model.env, MCP_TOOL_TIMEOUT: String(cfg.permissionTimeoutMs + 60_000), MARIA_CHAIN_AGENTS: chain.join(',') },
     stdio: ['pipe', 'pipe', 'pipe'],
     // Groupe de processus dédié pour pouvoir tuer aussi les commandes lancées par l'agent.
     detached: process.platform !== 'win32',

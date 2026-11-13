@@ -37,9 +37,11 @@ export function ConnectorDrawer({ def, config, health, agents, onChange, onDelet
 
   const state = connectorState(def, config, health);
   const restricted = config.agents ?? [];
+  const optional = new Set(def.optionalEnv ?? []);
+  const allEnv = [...def.env, ...(def.optionalEnv ?? [])];
 
   function copyEnv() {
-    const text = def.env.map((v) => `${v}=`).join('\n');
+    const text = allEnv.map((v) => `${v}=`).join('\n');
     navigator.clipboard?.writeText(text).then(
       () => {
         setCopied(true);
@@ -83,7 +85,7 @@ export function ConnectorDrawer({ def, config, health, agents, onChange, onDelet
           <h3>
             <KeyRound size={14} strokeWidth={2} /> Jetons du worker
           </h3>
-          {def.env.length === 0 ? (
+          {allEnv.length === 0 ? (
             <p className="muted small">Aucun jeton nécessaire.</p>
           ) : (
             <>
@@ -91,13 +93,13 @@ export function ConnectorDrawer({ def, config, health, agents, onChange, onDelet
                 À ajouter dans <code>apps/maria/.env.local</code> sur la machine du worker, puis <code>npm run service -- restart</code>. Les valeurs ne quittent jamais ta machine.
               </p>
               <div className="cx-env">
-                {def.env.map((v) => {
+                {allEnv.map((v) => {
                   const present = health?.env_present.includes(v);
                   return (
                     <div key={v} className="cx-env-row">
                       <code>{v}=</code>
-                      <span className={`cx-env-state ${present ? 'ok' : health ? 'missing' : ''}`}>
-                        {present ? 'présente' : health ? 'absente' : 'inconnue'}
+                      <span className={`cx-env-state ${present ? 'ok' : health && !optional.has(v) ? 'missing' : ''}`}>
+                        {present ? 'présente' : health ? (optional.has(v) ? 'facultative' : 'absente') : 'inconnue'}
                       </span>
                     </div>
                   );
@@ -172,8 +174,26 @@ export function ConnectorDrawer({ def, config, health, agents, onChange, onDelet
         </section>
 
         <section className="cx-block">
-          <h3>Commande</h3>
-          <code className="cx-cmd">{[def.command, ...def.args].join(' ')}</code>
+          {def.transport === 'http' ? (
+            <>
+              <h3>Serveur distant</h3>
+              <code className="cx-cmd">{def.url}</code>
+              {def.headers && Object.keys(def.headers).length > 0 && (
+                <p className="muted small">
+                  En-têtes : {Object.entries(def.headers).map(([k, v]) => (
+                    <code key={k}>
+                      {k}: {v}
+                    </code>
+                  ))}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <h3>Commande</h3>
+              <code className="cx-cmd">{[def.command, ...def.args].join(' ')}</code>
+            </>
+          )}
         </section>
 
         {onDelete && (

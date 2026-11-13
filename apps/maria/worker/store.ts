@@ -231,7 +231,7 @@ export class Store {
     return (count ?? 0) > 0;
   }
 
-  async queueMission(row: Pick<Mission, 'prompt' | 'workspace' | 'use_worktree'> & { routine_id: string }): Promise<string> {
+  async queueMission(row: Pick<Mission, 'prompt' | 'workspace' | 'use_worktree' | 'provider' | 'model'> & { routine_id: string }): Promise<string> {
     const { data, error } = await this.db.from('missions').insert(row).select('id').single();
     if (error) throw new Error(`queueMission: ${error.message}`);
     return (data as { id: string }).id;

@@ -35,6 +35,9 @@ export interface Mission {
   ticket_id?: string | null;
   /** Routine qui a lancé cette mission (page Routines). */
   routine_id?: string | null;
+  /** Fournisseur et modèle (null = choix par défaut, résolu par le worker au démarrage). */
+  provider?: 'claude' | 'openrouter' | null;
+  model?: string | null;
   created_by: string | null;
   created_at: string;
   started_at: string | null;
@@ -208,6 +211,8 @@ export interface Routine {
   cron: string | null;
   timezone: string;
   skip_if_running: boolean;
+  provider: 'claude' | 'openrouter' | null;
+  model: string | null;
   webhook_token_hash: string | null;
   next_run_at: string | null;
   last_run_at: string | null;

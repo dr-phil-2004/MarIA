@@ -6,6 +6,8 @@ import { WEEKDAYS_FR, cronToPreset, isValidCron, isValidTimezone, nextRun, prese
 import { getSupabase } from '@/lib/supabase';
 import type { Routine, Workspace } from '@/lib/types';
 import { AgentPrompt } from './AgentPrompt';
+import { ModelPicker } from './ModelPicker';
+import type { ModelChoice } from '@/lib/providers';
 
 const BROWSER_TZ = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
 
@@ -58,6 +60,7 @@ export function RoutineDrawer({ routine, workspaces, onClose, onSaved, onDeleted
   const [timezone, setTimezone] = useState(routine?.timezone ?? BROWSER_TZ);
   const [useWorktree, setUseWorktree] = useState(routine?.use_worktree ?? true);
   const [skipIfRunning, setSkipIfRunning] = useState(routine?.skip_if_running ?? true);
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(routine?.provider ? { provider: routine.provider, model: routine.model } : null);
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +118,8 @@ export function RoutineDrawer({ routine, workspaces, onClose, onSaved, onDeleted
       timezone,
       use_worktree: useWorktree,
       skip_if_running: skipIfRunning,
+      // Sans la migration 0014 ces colonnes n'existent pas : on ne les envoie que si un modèle est choisi ou l'était.
+      ...(modelChoice || routine?.provider ? { provider: modelChoice?.provider ?? null, model: modelChoice?.model ?? null } : {}),
       webhook_token_hash: trigger === 'webhook' ? hash : null,
       next_run_at: trigger === 'schedule' ? (upcoming[0]?.toISOString() ?? null) : null,
     };
@@ -122,7 +127,13 @@ export function RoutineDrawer({ routine, workspaces, onClose, onSaved, onDeleted
     const { data, error: err } = await query.select().single();
     setBusy(false);
     if (err) {
-      setError(/routines/.test(err.message) && /exist|find/.test(err.message) ? 'Applique la migration 0013_routines.sql dans Supabase.' : err.message);
+      setError(
+        /provider|model/.test(err.message)
+          ? 'Applique la migration 0014_model_providers.sql dans Supabase.'
+          : /routines/.test(err.message) && /exist|find/.test(err.message)
+            ? 'Applique la migration 0013_routines.sql dans Supabase.'
+            : err.message,
+      );
       return;
     }
     onSaved(data as Routine);
@@ -296,6 +307,12 @@ export function RoutineDrawer({ routine, workspaces, onClose, onSaved, onDeleted
                 )}
               </section>
             )}
+
+            <div className="field">
+              Modèle
+              <ModelPicker value={modelChoice} onChange={setModelChoice} allowDefault defaultLabel="Par défaut" />
+              <span className="muted small">« Par défaut » : préférence du premier agent mentionné, sinon le réglage de la page Connecteurs.</span>
+            </div>
 
             <label className="rt-check">
               <input type="checkbox" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} />

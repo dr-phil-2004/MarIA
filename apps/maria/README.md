@@ -50,7 +50,7 @@ Si le projet Supabase existe déjà, avec ses migrations et ton compte membre, p
 
 1. **Exposer le schéma.** Dans *Project Settings → API → Exposed schemas*, ajoute `maria`.
 2. **Appliquer les migrations.** Dans le *SQL Editor*, exécute **dans l'ordre** les fichiers de `supabase/migrations/` :
-   `0001_maria_init.sql` → `0013_routines.sql`.
+   `0001_maria_init.sql` → `0014_model_providers.sql`.
    Termine par :
    ```sql
    notify pgrst, 'reload schema';
@@ -103,6 +103,8 @@ MARIA_ALLOWED_TOOLS=Read,Glob,Grep,Edit,Write,Bash(git status),Bash(git diff:*),
 | `MARIA_RUFLO_CMD` | `npx -y ruflo@latest` | Commande Ruflo pour lire le registre d'agents |
 | `MARIA_IGNORE_PATHS` | `.claude-flow/,.swarm/` | Préfixes exclus de la liste des fichiers modifiés |
 | `MARIA_POLL_MS` | `2000` | Fréquence de recherche de nouvelles missions |
+| `OPENROUTER_API_KEY` | (aucune) | Clé OpenRouter, pour les missions dont le fournisseur est OpenRouter |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api` | Adresse de l’API compatible Anthropic d’OpenRouter |
 | `MARIA_TICKET_PR` | activé | `0` = ne pas pousser la branche d’un ticket ni ouvrir sa PR GitHub |
 
 </details>
@@ -162,6 +164,13 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
       -d '{"p_token": "<jeton>", "p_input": "texte ajouté à la consigne"}'
     ```
   - « Lancer maintenant », pause, historique des exécutions ; option pour ne pas relancer tant que la précédente tourne.
+- **Modèle (Claude ou OpenRouter)** : par défaut, les missions utilisent ton compte Claude Code. Tu peux choisir OpenRouter (dont des modèles gratuits « :free ») :
+  - pour toutes les missions : carte « Modèle par défaut » de la page Connecteurs ;
+  - pour un agent : atelier → « Fournisseur quand une mission commence par cet agent » ;
+  - pour une routine : champ « Modèle » de la routine.
+
+  La priorité est : routine, puis premier agent mentionné, puis réglage par défaut. Il faut `OPENROUTER_API_KEY=…` dans `.env.local` puis `npm run service -- restart`. Les modèles gratuits sont limités en nombre de requêtes et souvent moins bons avec les outils : garde Claude pour les missions qui modifient le code.
+- **Composio et serveurs MCP distants** : la fiche Composio (Connecteurs → Intégrations) branche des centaines d’applications (Gmail, Agenda, Slack, Notion, Linear…) via un seul serveur MCP distant. Crée le serveur sur composio.dev en ne gardant que les outils utiles, puis mets `COMPOSIO_MCP_URL=…` (et `COMPOSIO_API_KEY=…` si demandé) dans `.env.local`. « + Serveur MCP » → « Serveur distant (URL) » branche aussi n’importe quel autre serveur MCP en ligne ; le secret de l’en-tête s’écrit `${VARIABLE}` et sa valeur va dans `.env.local`.
 - **Connecteurs** : état de la machine du worker (Claude Code, GitHub CLI, Ruflo, serveurs MCP du projet) et serveurs MCP à brancher sur les missions (GitHub, navigateur Playwright, PostgreSQL, Slack, Notion ou serveur personnalisé). Pour chacun : activation, « Demander » ou « Toujours autoriser », outils pré-autorisés et agents concernés (le connecteur n'est alors chargé que si la mission mentionne un de ces agents). Les jetons vont dans `.env.local` du worker (ex. `GITHUB_PERSONAL_ACCESS_TOKEN=…`), puis `npm run service -- restart` ; MarIA n'enregistre que le nom des variables. Un connecteur dont un jeton manque est ignoré, avec un avertissement dans le fil de la mission.
 - **Mémoire** : l'onglet affiche la mémoire Ruflo du dossier (`.swarm/memory.db`), recopiée par le worker toutes les 30 s.
 
@@ -175,12 +184,13 @@ Dans le menu des dossiers, un point plein ● veut dire que le worker est en lig
 | « Accès refusé » à la connexion | Ton compte n'est pas dans `maria.members` (étape 3.3) |
 | `spawn claude ENOENT` | Claude Code n'est pas installé pour le Node 22 actif (`npm i -g @anthropic-ai/claude-code`) |
 | Pas de fenêtre d'autorisation | Retirer `MARIA_INTERACTIVE_PERMISSIONS=0` de `.env.local` et redémarrer le worker |
-| Erreur `... applique la migration 0006…0013` | Exécuter la migration indiquée dans Supabase |
+| Erreur `... applique la migration 0006…0014` | Exécuter la migration indiquée dans Supabase |
 | Le lien de connexion renvoie vers localhost | Adresse Vercel absente des *Redirect URLs* Supabase (étape 3.4) |
 | Connecteur « À configurer » | Un jeton manque dans `.env.local` du worker ; l'ajouter puis `npm run service -- restart` (l'état se met à jour au redémarrage, puis toutes les 10 min) |
 | L’atelier reste sur « Enregistrement… » | Le worker est arrêté ou ancien : `git pull` puis `npm run service -- restart` (la demande est appliquée à son retour) |
 | Une routine planifiée ne part pas | Le worker doit tourner à l’heure prévue (`npm run service -- status`) ; vérifie aussi le fuseau horaire de la routine |
 | Le projet Supabase est « en pause » (`Failed to fetch` à la connexion) | Offre gratuite : pause après une semaine sans activité. *Restore project* dans le tableau de bord Supabase ; un worker allumé évite la pause |
+| Mission OpenRouter en échec immédiat | `OPENROUTER_API_KEY` absente de `.env.local`, ou identifiant de modèle inexistant (vérifie sur openrouter.ai/models) ; quota gratuit épuisé : réessaie plus tard ou repasse sur Claude |
 | Onglet Mémoire vide | La base Ruflo n'existe pas encore dans ce dossier (`npx ruflo@latest memory init`) |
 
 ## Sécurité

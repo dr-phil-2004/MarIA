@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Pencil, Play, Plus, Webhook } from 'lucide-react';
 import { describeCron } from '@/lib/cron';
 import { parseMentions } from '@/lib/mentions';
+import { describeChoice } from '@/lib/providers';
 import { getSupabase } from '@/lib/supabase';
 import type { Mission, Routine, Workspace } from '@/lib/types';
 import { AgentAvatar } from './AgentAvatar';
@@ -74,7 +75,7 @@ export function RoutinesPage({ workspaces, missions, onOpenMission }: Props) {
   async function runNow(r: Routine) {
     const { data, error: err } = await getSupabase()
       .from('missions')
-      .insert({ prompt: r.prompt, workspace: r.workspace, use_worktree: r.use_worktree, routine_id: r.id })
+      .insert({ prompt: r.prompt, workspace: r.workspace, use_worktree: r.use_worktree, routine_id: r.id, ...(r.provider ? { provider: r.provider, model: r.model } : {}) })
       .select()
       .single();
     if (err) setError(err.message);
@@ -141,6 +142,7 @@ export function RoutinesPage({ workspaces, missions, onOpenMission }: Props) {
                 )}
                 <span className="cx-tag">{r.workspace}</span>
                 {r.use_worktree && <span className="cx-tag">branche isolée</span>}
+                {r.provider && <span className="cx-tag">{describeChoice({ provider: r.provider, model: r.model })}</span>}
               </div>
               <div className="rt-when small">
                 {r.trigger === 'schedule' && r.enabled && (

@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const health = new Map<string, Awaited<ReturnType<typeof computeHealth>>>();
   let healthAt = 0;
   const refreshHealth = async () => {
-    const envNames = connectorEnvNames(await store.listConnectors());
+    const envNames = [...connectorEnvNames(await store.listConnectors()), 'OPENROUTER_API_KEY'];
     for (const name of names) health.set(name, await computeHealth(cfg.claudeBin, cfg.workspaces[name], envNames));
     healthAt = Date.now();
   };

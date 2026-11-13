@@ -5,10 +5,12 @@ import { Check, FileCode2, Loader2, Play, Save, Sparkles, Trash2 } from 'lucide-
 import { AGENT_COLORS, AGENT_NAME, MODELS, TOOL_GROUPS, agentFileName, serializeAgent, type AgentDef, type AgentFile, type AgentOp } from '@/lib/agent-def';
 import { AGENT_TEMPLATES } from '@/lib/agent-templates';
 import { mentionName } from '@/lib/mentions';
+import { SETTING_AGENT_MODELS, describeChoice, isModelChoice, type ModelChoice } from '@/lib/providers';
 import { getSupabase } from '@/lib/supabase';
 import type { Workspace } from '@/lib/types';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentConnectors } from './AgentConnectors';
+import { ModelPicker } from './ModelPicker';
 
 const ONLINE_MS = 90_000;
 const OP_TIMEOUT_MS = 60_000;
@@ -46,6 +48,40 @@ export function AgentStudio({ workspaces, name, onSaved, onDeleted, onTest }: Pr
   const [error, setError] = useState<string | null>(null);
   const [needsMigration, setNeedsMigration] = useState(false);
   const [showFile, setShowFile] = useState(false);
+  // Fournisseur de la mission quand elle commence par cet agent (maria.settings « agent_providers »).
+  const [pref, setPref] = useState<ModelChoice | null>(null);
+  const [initialPref, setInitialPref] = useState<ModelChoice | null>(null);
+
+  useEffect(() => {
+    if (!name) return;
+    getSupabase()
+      .from('settings')
+      .select('value')
+      .eq('key', SETTING_AGENT_MODELS)
+      .maybeSingle()
+      .then(({ data }) => {
+        const value = (data?.value as Record<string, unknown> | undefined)?.[name];
+        const choice = isModelChoice(value) ? value : null;
+        setPref(choice);
+        setInitialPref(choice);
+      });
+  }, [name]);
+
+  /** Enregistre la préférence (lecture-modification-écriture de la table de réglages). */
+  async function savePref(agent: string): Promise<boolean> {
+    const { data } = await getSupabase().from('settings').select('value').eq('key', SETTING_AGENT_MODELS).maybeSingle();
+    const map = { ...((data?.value as Record<string, unknown> | undefined) ?? {}) };
+    if (file && file.name !== agent) delete map[file.name];
+    if (pref) map[agent] = pref;
+    else delete map[agent];
+    const { error: err } = await getSupabase().from('settings').upsert({ key: SETTING_AGENT_MODELS, value: map });
+    if (err) {
+      setError(err.message);
+      return false;
+    }
+    setInitialPref(pref);
+    return true;
+  }
 
   // Chargement de la définition existante (dans le premier dossier qui la contient).
   useEffect(() => {
@@ -85,7 +121,8 @@ export function AgentStudio({ workspaces, name, onSaved, onDeleted, onTest }: Pr
   const readOnlyScope = file?.scope === 'user';
   const nameError = def.name && !AGENT_NAME.test(def.name.trim()) ? 'Lettres, chiffres, espaces, - et _' : null;
   const dirty = !sameDef(def, initial);
-  const canSave = !!workspace && !!def.name.trim() && !nameError && !!def.description.trim() && !!def.body.trim() && (dirty || !name) && !busy;
+  const prefDirty = JSON.stringify(pref) !== JSON.stringify(initialPref);
+  const canSave = !!workspace && !!def.name.trim() && !nameError && !!def.description.trim() && !!def.body.trim() && (dirty || prefDirty || !name) && !busy;
   const preview = useMemo(() => serializeAgent({ ...def, name: def.name.trim() || 'mon-agent' }), [def]);
   const path = file?.scope === 'project' ? file.path : `.claude/agents/${agentFileName(def.name || 'mon-agent')}`;
 
@@ -150,11 +187,15 @@ export function AgentStudio({ workspaces, name, onSaved, onDeleted, onTest }: Pr
   }
 
   async function save() {
-    if (await request('save')) {
+    if (dirty || !file) {
+      if (!(await request('save'))) return;
       setInitial(def);
-      setSaved(true);
-      onSaved(def.name.trim());
     }
+    if (prefDirty || (file && file.name !== def.name.trim() && pref)) {
+      if (!(await savePref(def.name.trim()))) return;
+    }
+    setSaved(true);
+    onSaved(def.name.trim());
   }
 
   async function remove() {
@@ -207,9 +248,21 @@ export function AgentStudio({ workspaces, name, onSaved, onDeleted, onTest }: Pr
               Quand l’utiliser ? <span className="muted small">Claude Code lit cette description pour choisir l’agent.</span>
               <textarea rows={2} value={def.description} onChange={(e) => set({ description: e.target.value })} placeholder="Relit le code modifié (bugs, sécurité). À utiliser avant de fusionner." />
             </label>
+            <div className="field">
+              Fournisseur quand une mission commence par cet agent
+              <ModelPicker
+                value={pref}
+                onChange={(v) => {
+                  setSaved(false);
+                  setPref(v);
+                }}
+                allowDefault
+                defaultLabel="Réglage par défaut"
+              />
+            </div>
             <div className="as-row">
               <div className="field">
-                Modèle
+                Modèle Claude (sous-agent)
                 <div className="as-seg">
                   {MODELS.map((m) => (
                     <button key={m.label} type="button" className={def.model === m.id ? 'active' : ''} onClick={() => set({ model: m.id })} title={m.hint}>
@@ -317,7 +370,7 @@ export function AgentStudio({ workspaces, name, onSaved, onDeleted, onTest }: Pr
             </div>
             <p className="muted small">{def.description || 'Décris quand utiliser cet agent.'}</p>
             <div className="as-tags">
-              <span className="cx-tag">{MODELS.find((m) => m.id === def.model)?.label ?? def.model}</span>
+              {pref ? <span className="cx-tag">{describeChoice(pref)}</span> : <span className="cx-tag">{MODELS.find((m) => m.id === def.model)?.label ?? def.model}</span>}
               <span className="cx-tag">{def.tools === null ? 'Tous les outils' : `${def.tools.length} outil${def.tools.length > 1 ? 's' : ''}`}</span>
               <span className="cx-tag">{workspace || '—'}</span>
             </div>
